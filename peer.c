@@ -14,49 +14,58 @@
 #include <pthread.h>
 #include <netdb.h>
 
-
 // Globals
 int tracker_port;
 char tracker_ip[20];
-int connections[1];
-pthread_t childListen;
-pthread_t childConnect;
+int connections[100];
 unsigned int roomnum;
 int sock;
 struct sockaddr_in addr;
+int totalConnections;
+pthread_mutex_t lock;
+struct hostent* server;
+void* ks;
 
 // Function Prototypes
 void parse_args(int argc, char **argv);
+void* connector();
+void * listener(void * ptr);
 
 int main(int argc, char **argv){
-    
+	totalConnections = 0;
+  if(pthread_mutex_init(&lock, NULL) != 0) {
+	fprintf(stderr,"Mutex init failed");
+	return 1;
+  }
+  
+	pthread_t childListen;
   parse_args(argc, argv);
   
   sock = socket(PF_INET, SOCK_STREAM, 0);
   
   if(sock < 0) {
-	stderr("Issue Creating Socket");
+	fprintf(stderr,"Issue Creating Socket");
 	return 0;
-	}
+  }
 	
 	parse_args(argc, argv);
 	
+	server = (struct hostent *) gethostbyname(tracker_ip);
+	
 	memset(&addr, 0, sizeof(addr));
+	
 	addr.sin_family = AF_INET;
-	addr.sin_port = port;
+	addr.sin_port = tracker_port;
 	addr.sin_addr.s_addr = INADDR_ANY;
 	
 	if(bind(sock, (struct sockaddr*) &addr, sizeof(addr)) != 0) {
-		stderr("Issue binding");
+		fprintf(stderr,"Issue binding");
 		return 0;
 	}
 	
-	pthread_create(&childListen, 0, listener,0);
-	pthread_create(&childConnect, 0, connector, 0);
-	while(1) {
-	
-	}
-	
+	pthread_create(&childListen, NULL, listener, NULL);
+	pthread_detach(childListen);
+	connector();
 	return 0;
 }
 
@@ -68,10 +77,34 @@ void parse_args(int argc, char **argv){
 	memcpy(tracker_ip, argv[1], (strlen(argv[1]) + 1 > sizeof(tracker_ip)) ? sizeof(tracker_ip) : strlen(argv[1]));
 }
 
-void* listener() {
-
+void * listener(void * ptr) {
+	pthread_t child;
+	int connection;
+	if(listen(sock, 10) != 0) {
+		fprintf(stderr,"Issue Listening");
+		abort();
+	}
+	else {
+		while(1) {
+			connection = accept(sock, 0, 0);
+			pthread_mutex_lock(&lock);
+			connections[totalConnections] = connection;
+			totalConnections++;			
+			if(connection <= 0)  {
+				totalConnections--;
+			}	
+			else {
+				//pthread_create(&child, 0, ListenForMessage State, totalConnections);
+				//pthread_detach(child);
+			}
+			pthread_mutex_unlock(&lock);
+		}
+	}
+	return NULL;
+	
 }
 
 void* connector() {
-
+	int k;
+	return NULL;
 }
