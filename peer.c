@@ -11,22 +11,25 @@
 #include <fcntl.h>
 #include <time.h>
 #include <locale.h>
+#include <pthread.h>
+#include <netdb.h>
+
 
 // Globals
 int tracker_port;
 char tracker_ip[20];
 int connections[1];
-//Threads
+pthread_t childListen;
+pthread_t childConnect;
 unsigned int roomnum;
-
+int sock;
+struct sockaddr_in addr;
 
 // Function Prototypes
 void parse_args(int argc, char **argv);
 
 int main(int argc, char **argv){
-  struct sockaddr_in addr;
-  int sock, port;
-  
+    
   parse_args(argc, argv);
   
   sock = socket(PF_INET, SOCK_STREAM, 0);
@@ -48,18 +51,10 @@ int main(int argc, char **argv){
 		return 0;
 	}
 	
-	if(listen(sock, 5) != 0) {
-		stderr("Issue in listening");
-		return 0;
-	}
-	else {
-		int k;
-		pthread_t child;
-		
-		while(1) {
-			k = accept(sock, 0, 0)
-			
-		}
+	pthread_create(&childListen, 0, listener,0);
+	pthread_create(&childConnect, 0, connector, 0);
+	while(1) {
+	
 	}
 	
 	return 0;
@@ -71,4 +66,12 @@ void parse_args(int argc, char **argv){
 	}
 	tracker_port = atoi(argv[2]);
 	memcpy(tracker_ip, argv[1], (strlen(argv[1]) + 1 > sizeof(tracker_ip)) ? sizeof(tracker_ip) : strlen(argv[1]));
+}
+
+void* listener() {
+
+}
+
+void* connector() {
+
 }
