@@ -32,6 +32,10 @@ void* ks;
 void parse_args(int argc, char **argv);
 void* connector();
 void * listener(void * ptr);
+void * listenForMessage(void * ptr);
+void * sendMessage(void * ptr);
+void * postText(void * ptr);
+
 
 int main(int argc, char **argv){
 	totalConnections = 0;
@@ -92,6 +96,8 @@ void parse_args(int argc, char **argv){
 void * listener(void * ptr) {
 	pthread_t child;
 	int connection;
+	int* curNum;
+	curNum = malloc(sizeof(int));
 	if(listen(sock, 10) != 0) {
 		fprintf(stderr,"Issue Listening");
 		abort();
@@ -106,8 +112,9 @@ void * listener(void * ptr) {
 				totalConnections--;
 			}	
 			else {
-				//pthread_create(&child, NULL, ListenForMessage State, NULL);
-				//pthread_detach(child);
+				curNum = totalConnections;
+				pthread_create(&child, NULL, listenForMessage State, (void*) curNum);
+				pthread_detach(child);
 			}
 			pthread_mutex_unlock(&lock);
 		}
@@ -131,13 +138,24 @@ void* connector() {
 	pthread_mutex_unlock(&lock);
 	
 	
-	//pthread_create(&child, NULL, ListenForMessage, NULL);
-	//pthread_detach(child);
+	pthread_create(&child, NULL, ListenForMessage, (void*) curNum);
+	pthread_detach(child);
 	
-	//Goto Send Message	
+	//Goto Send Messages	
 	return NULL;
 }
 
 //Insert Listening for a message
+void * listenForMessage(void * ptr) {
+
+}
 
 //Insert send message function
+void * sendMessage(void * ptr) {
+
+}
+
+//Insert Post Message to Screen
+void * postText(void * ptr) {
+
+}
