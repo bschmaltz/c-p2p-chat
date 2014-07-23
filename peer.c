@@ -55,7 +55,7 @@ int main(int argc, char **argv){
 	memset(&addr, 0, sizeof(addr));
 	
 	addr.sin_family = AF_INET;
-	addr.sin_port = tracker_port;
+	addr.sin_port = htons(tracker_port);
 	addr.sin_addr.s_addr = INADDR_ANY;
 	
 	if(bind(sock, (struct sockaddr*) &addr, sizeof(addr)) != 0) {
@@ -94,7 +94,7 @@ void * listener(void * ptr) {
 				totalConnections--;
 			}	
 			else {
-				//pthread_create(&child, 0, ListenForMessage State, totalConnections);
+				//pthread_create(&child, NULL, ListenForMessage State, NULL);
 				//pthread_detach(child);
 			}
 			pthread_mutex_unlock(&lock);
@@ -106,5 +106,26 @@ void * listener(void * ptr) {
 
 void* connector() {
 	int k;
+	pthread_t child;
+	k = connect(sock, (struct sockaddr*)  &addr, sizeof(addr));
+	if( k == -1) {
+		fprintf(stderr,"Issue connecting to server.")
+		abort();
+	}
+	pthread_mutex_lock(&lock);
+	connections[totalConnections] = k;
+	
+	totalConnections++;
+	pthread_mutex_unlock(&lock);
+	
+	
+	//pthread_create(&child, NULL, ListenForMessage, NULL);
+	//pthread_detach(child);
+	
+	//Goto Send Message	
 	return NULL;
 }
+
+//Insert Listening for a message
+
+//Insert send message function
