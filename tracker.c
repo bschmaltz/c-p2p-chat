@@ -14,14 +14,14 @@
 
 // Globals
 unsigned short g_usPort;
+struct sockaddr_in svr_addr;
+int svr_socket;
+
 
 // Function Prototypes
 void parse_args(int argc, char **argv);
 
 int main(int argc, char **argv){
-  struct sockaddr_in svr_addr;
-  int svr_socket;
-
   parse_args(argc, argv);
   fprintf(stderr, "Starting server on port: %hu\n", g_usPort);
 
