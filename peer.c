@@ -15,6 +15,7 @@
 #include <netdb.h>
 
 // Globals
+int peer_port;
 int tracker_port;
 char tracker_ip[20];
 int connections[100];
@@ -24,6 +25,7 @@ struct sockaddr_in addr;
 int totalConnections;
 pthread_mutex_t lock;
 struct hostent* server;
+struct sockaddr_in tracker_addr;
 void* ks;
 
 // Function Prototypes
@@ -50,12 +52,21 @@ int main(int argc, char **argv){
 	
 	parse_args(argc, argv);
 	
-	server = (struct hostent *) gethostbyname(tracker_ip);
+	// server = (struct hostent *) gethostbyname(tracker_ip);
+
+	// addr of tracker
+	tracker_addr.sin_family = AF_INET; 
+	tracker_addr.sin_port = htons(tracker_port);
+	if (inet_aton(tracker_ip, &tracker_addr.sin_addr) == 0) {
+		fprintf(stderr,"tracker ip not valid");
+		return 0;
+	}
 	
 	memset(&addr, 0, sizeof(addr));
 	
+	// addr that other people in the chat room should send message to
 	addr.sin_family = AF_INET;
-	addr.sin_port = htons(tracker_port);
+	addr.sin_port = htons(peer_port);
 	addr.sin_addr.s_addr = INADDR_ANY;
 	
 	if(bind(sock, (struct sockaddr*) &addr, sizeof(addr)) != 0) {
@@ -70,10 +81,11 @@ int main(int argc, char **argv){
 }
 
 void parse_args(int argc, char **argv){
-	if (argc != 3) {
+	if (argc != 4) {
 		fprintf(stderr, "%s\n", "Argument number not correct");
 	}
 	tracker_port = atoi(argv[2]);
+	peer_port = atoi(argv[3]);
 	memcpy(tracker_ip, argv[1], (strlen(argv[1]) + 1 > sizeof(tracker_ip)) ? sizeof(tracker_ip) : strlen(argv[1]));
 }
 
