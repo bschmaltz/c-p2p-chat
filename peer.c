@@ -13,6 +13,7 @@
 #include <locale.h>
 #include <pthread.h>
 #include <netdb.h>
+#include "message.h"
 
 // Globals
 int peer_port;
@@ -42,6 +43,7 @@ void * listener(void * ptr);
 void * listenForMessage(void * ptr);
 void * sendMessage(void * ptr);
 void * postText(void * ptr);
+void * threadSend(void * ptr);
 
 typedef struct message_ts {
 	char* payload;
@@ -170,17 +172,17 @@ void* connector() {
 	int* curNum;
 	k = connect(sock, (struct sockaddr*)  &addr, sizeof(addr));
 	if( k == -1) {
-		fprintf(stderr,"Issue connecting to server.")
+		fprintf(stderr,"Issue connecting to server.");
 		abort();
 	}
 	pthread_mutex_lock(&lock);
 	connections[totalConnectionsMade] = k;
 	totalConnectionsMade++;
 	totalConnections++;
-	curNum = totalConnectionsMade;
+	curNum = (int) totalConnectionsMade;
 	pthread_mutex_unlock(&lock);
 	
-	pthread_create(&child, NULL, ListenForMessage, (void*) curNum);
+	pthread_create(&child, NULL, listenForMessage, (void*) curNum);
 	pthread_detach(child);
 	pthread_create(&child, NULL, threadSend, (void*) curNum);
 	pthread_detach(child);
@@ -199,7 +201,7 @@ void * listenForMessage(void * ptr) {
 	while(1) {
 		head = malloc(sizeof(message_header));
 		bzero(buff, 998);
-		buff[998] = "/0";
+		buff[998] = "\0";
 		if(recv(sock, head, sizeof(message_header), 0) < 0) {
 			pthread_mutex_lock(&lock);
 			totalConnections--;
