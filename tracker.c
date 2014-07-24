@@ -187,6 +187,7 @@ char* room_list(){
   memset(room_stats, 0, number_of_rooms * sizeof(room_stats[0]));
   struct peer *s;
   int max_occupants=0;
+  unsigned int max_room_number =0;
   int num_rooms_indexed = 0;
   for(s=peers; s != NULL; s=(peer *)s->hh.next){
     int room_index=-1;
@@ -209,13 +210,22 @@ char* room_list(){
     if(room_stats[room_index]>max_occupants){
       max_occupants=room_stats[room_index];
     }
+    if(room_nums[room_index]>max_room_number){
+      max_room_number=room_nums[room_index];
+    }
   }
 
+  int max_room_num_len;
+  if(max_room_number==0){
+    max_room_num_len=1;
+  }else{
+    max_room_num_len=(int)floor(log10((float)max_room_number)) + 1;
+  }
   int max_room_size_len = (int)floor(log10((float)MAX_ROOM_SIZE)) + 1;
   int max_num_room_len = (int)floor(log10((float)max_occupants)) + 1;
   char *list_entry_format = (char *)"room: %d - %d/%d\n";
-  char *list_entry = (char *)malloc(max_num_room_len +2*max_room_size_len+strlen(list_entry_format));
-  char *list = (char *)malloc(max_num_room_len*(max_num_room_len+2*max_room_size_len+strlen(list_entry_format)));
+  char *list_entry = (char *)malloc(max_room_num_len+max_num_room_len+max_room_size_len+strlen(list_entry_format));
+  char *list = (char *)malloc(max_num_room_len*(max_room_num_len+max_num_room_len+max_room_size_len+strlen(list_entry_format)));
   unsigned int i;
   char *list_i = list;
   for(i=0; i<sizeof(room_stats)/sizeof(room_stats[0]); i++){
