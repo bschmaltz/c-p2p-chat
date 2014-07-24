@@ -81,7 +81,7 @@ int main(int argc, char **argv){
 void peer_join(unsigned int ip, short peer, unsigned int room){
   struct peer *s;
   if(room<0 || room>=MAX_NUM_ROOMS){
-    printf("Peer join failed - room number out of possible range.\n");
+    perror("Peer join failed - room number out of possible range.\n");
     return;
   }
   int r=0;
@@ -89,7 +89,7 @@ void peer_join(unsigned int ip, short peer, unsigned int room){
     if(s->room == room){
       r = r+1;
       if(r>=MAX_ROOM_SIZE){
-        printf("Peer join failed - room full.\n");
+        perror("Peer join failed - room full.\n");
         return;
       }
     }
@@ -105,16 +105,22 @@ void peer_join(unsigned int ip, short peer, unsigned int room){
 
   HASH_FIND_STR(peers, (new_peer->ip_and_port), s);
   if(s!=NULL && s->room==room){
-    printf("Peer join failed - already in room.\n");
+    perror("Peer join failed - already in room.\n");
     return;
   }
+  int old_room_update = -1;
   if(s==NULL){ 
     //peer not found - join
     HASH_ADD_STR( peers, ip_and_port, new_peer );
   }else{
     //peer found - switch
-    //TODO: alert s->room that peer left by sending peer list
+    old_room_update = s->room;
     HASH_REPLACE_STR( peers, ip_and_port, new_peer, s );
+  }
+  if(old_room_update!=-1){
+    fprintf(stderr, "%s peer switched from %d to %d.\n", new_peer->ip_and_port, old_room_update, room);
+  }else{
+    fprintf(stderr, "%s joined %d\n", new_peer->ip_and_port, room);
   }
 }
 
