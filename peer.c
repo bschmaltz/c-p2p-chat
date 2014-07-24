@@ -23,11 +23,17 @@ unsigned int roomnum;
 int sock;
 struct sockaddr_in addr;
 int totalConnections;
+int totalConnectionsMade;
 pthread_mutex_t lock; //Lock Mutex for connections
 pthread_mutex_t lockOut; //Lock Mutex for Output
+pthread_mutex_t lockSend; //Lock Mutex for Send
 struct hostent* server;
 struct sockaddr_in tracker_addr;
-void* ks;
+message_header* toSend;
+char* buffToSend;
+
+int sendMessageFlag = 0;
+int numSent = 0;
 
 // Function Prototypes
 void parse_args(int argc, char **argv);
@@ -45,6 +51,8 @@ typedef struct message_ts {
 
 int main(int argc, char **argv){
 	totalConnections = 0;
+	totalConnectionsMade = 0;
+	
 	pthread_t childListen;
 	//Create Mutexes
 	
@@ -55,6 +63,11 @@ int main(int argc, char **argv){
   
   if(pthread_mutex_init(&lockOut, NULL) != 0) {
 	fprintf(stderr,"Mutex out init failed");
+	return 1;
+  }
+
+  if(pthread_mutex_init(&lockSend, NULL) != 0) {
+	fprintf(stderr,"Mutex send init failed");
 	return 1;
   }
   
@@ -130,14 +143,18 @@ void * listener(void * ptr) {
 		while(1) {
 			connection = accept(sock, 0, 0);
 			pthread_mutex_lock(&lock); //Lock up for list of Connections
-			connections[totalConnections] = connection;
-			totalConnections++;			
+			connections[totalConnectionsMade] = connection;
+			totalConnectionsMade++;
+			totalConnections++;
 			if(connection <= 0)  {
 				totalConnections--;
+				totalConnectionsMade--;
 			}	
 			else {
 				curNum = totalConnections;
 				pthread_create(&child, NULL, listenForMessage State, (void*) curNum);
+				pthread_detach(child);
+				pthread_create(&child, NULL, threadSend, (void*) curNum);
 				pthread_detach(child);
 			}
 			pthread_mutex_unlock(&lock);
@@ -150,18 +167,22 @@ void * listener(void * ptr) {
 void* connector() {
 	int k;
 	pthread_t child;
+	int* curNum;
 	k = connect(sock, (struct sockaddr*)  &addr, sizeof(addr));
 	if( k == -1) {
 		fprintf(stderr,"Issue connecting to server.")
 		abort();
 	}
 	pthread_mutex_lock(&lock);
-	connections[totalConnections] = k;
-	
+	connections[totalConnectionsMade] = k;
+	totalConnectionsMade++;
 	totalConnections++;
+	curNum = totalConnectionsMade;
 	pthread_mutex_unlock(&lock);
 	
 	pthread_create(&child, NULL, ListenForMessage, (void*) curNum);
+	pthread_detach(child);
+	pthread_create(&child, NULL, threadSend, (void*) curNum);
 	pthread_detach(child);
 	
 	sendMessage(NULL);
@@ -178,11 +199,9 @@ void * listenForMessage(void * ptr) {
 	while(1) {
 		head = malloc(sizeof(message_header));
 		bzero(buff, 998);
+		buff[998] = "/0";
 		if(recv(sock, head, sizeof(message_header), 0) < 0) {
 			pthread_mutex_lock(&lock);
-			for(i = connectNum; connectNum < totalConnections - 1; connectNum++) {
-				connections[connectNum] = connections[connectNum + 1];
-			}
 			totalConnections--;
 			pthread_mutex_unlock(&lock);
 			pthread_exit();
@@ -198,9 +217,40 @@ void * sendMessage(void * ptr) {
 	while(1) {
 		//Read text input
 		//Output using postText
-		//iterate and send to
+		//Set sendMessageFlag to high
 	}
 	return NULL;
+}
+
+void * threadSend(void * ptr) {
+	int c = 0; //Sent message yet.
+	int connected = connections[(int) ptr];
+	int connectNum = (int) ptr;
+	
+
+	while(1) {
+		while(sendMessageFlag == 0) {
+			c = 0;
+		}
+		pthread_mutex_lock(&lockSend);
+		//send the header
+		//send the buffer
+		//if send fails, end the pthread
+		numSent++;
+		if(numSent == totalConnections) {
+			numSent = 0;
+			sendMessageFlag = 0;
+			c = 0;
+		}
+		else {
+			c = 1;
+		}
+		pthread_mutex_unlock(&lockSend);
+		while(c == 1) {
+			if(sendMessageFlag == 0)
+				c = 0;
+		}
+	}
 }
 
 //Insert Post Message to Screen
