@@ -31,6 +31,7 @@ struct peer *peers;
 // Function Prototypes
 void parse_args(int argc, char **argv);
 void peer_join(unsigned int ip, short port, unsigned int room);
+void peer_leave(unsigned int ip, short peer);
 char* room_list();
 char* peer_list(unsigned int room);
 void test_hash_table();
@@ -78,6 +79,22 @@ int main(int argc, char **argv){
 }
 
 void peer_join(unsigned int ip, short peer, unsigned int room){
+  struct peer *s;
+  if(room<0 || room>=MAX_NUM_ROOMS){
+    printf("Peer join failed - room number out of possible range.\n");
+    return;
+  }
+  int r=0;
+  for(s=peers; s != NULL; s=(struct peer *)s->hh.next){
+    if(s->room == room){
+      r = r+1;
+      if(r>=MAX_ROOM_SIZE){
+        printf("Peer join failed - room full.\n");
+        return;
+      }
+    }
+  }
+  
   //setup entry
   struct peer *new_peer;
   new_peer = (struct peer *)malloc(sizeof(struct peer));
@@ -85,16 +102,33 @@ void peer_join(unsigned int ip, short peer, unsigned int room){
   sprintf(new_peer->ip_and_port, ip_and_port_format, ip, peer);
   new_peer->room = room;
   
-  struct peer *s;
-  HASH_FIND_STR(peers, (new_peer->ip_and_port), s);  /* peer already in the hash? */
+
+  HASH_FIND_STR(peers, (new_peer->ip_and_port), s);
+  if(s!=NULL && s->room==room){
+    printf("Peer join failed - already in room.\n");
+    return;
+  }
   if(s==NULL){ 
     //peer not found - join
     HASH_ADD_STR( peers, ip_and_port, new_peer );
   }else{
     //peer found - switch
-    HASH_ADD_STR( peers, ip_and_port, new_peer );
+    //TODO: alert s->room that peer left by sending peer list
+    HASH_REPLACE_STR( peers, ip_and_port, new_peer, s );
   }
+}
 
+void peer_leave(unsigned int ip, short peer){
+  char ip_port[20];
+  memset(ip_port, 0, sizeof(ip_port));
+  char* ip_and_port_format = (char *)"%d:%d";
+  sprintf(ip_port, ip_and_port_format, ip, peer);
+  struct peer *s;
+  HASH_FIND_STR(peers, ip_port, s);
+  if(s!=NULL){
+    HASH_DEL( peers, s);
+    free(s);
+  }
 }
 
 char* room_list(){
@@ -103,7 +137,6 @@ char* room_list(){
   struct peer *s;
 
   for(s=peers; s != NULL; s=(peer *)s->hh.next){
-    printf("ip_and_port: %s -> room: %d\n", s->ip_and_port, s->room);
     room_stats[s->room] = room_stats[s->room]+1;
   }
 
@@ -177,8 +210,20 @@ void parse_args(int argc, char **argv){
 void test_hash_table(){
   fprintf(stderr, "test hash table\n");
   peer_join(1234, 1, 0);
+  peer_join(1234, 1, 5);
+  peer_join(1111, 1, 0);
   peer_join(6969, 2, 0);
+  peer_join(88696988, 2, 0);
+  peer_join(420, 2, MAX_NUM_ROOMS); //fail - room number out of possible range
   peer_join(420, 2, 1);
+  peer_join(420, 2, 1); //fail - user already in room
+  peer_join(420, 3, 1);
+  peer_join(420, 4, 1);
+  peer_join(420, 5, 1);
+  peer_join(420, 6, 1);
+  peer_join(420, 7, 1); //fail - room full
+  peer_leave(6969, 2);
+  peer_leave(6969444, 2);//unknown address, should just ignore
   fprintf(stderr, "room list\n%s\n", room_list());
   fprintf(stderr, "peer list for room 0\n%s\n", peer_list(0));
 }
