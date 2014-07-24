@@ -11,7 +11,10 @@
 #include <fcntl.h>
 #include <time.h>
 #include <locale.h>
+#include <math.h>
 #include "uthash.h"
+#define MAX_NUM_ROOMS 10
+#define MAX_ROOM_SIZE 5
 
 struct peer {
   char ip_and_port[20];
@@ -27,7 +30,10 @@ struct peer *peers;
 
 // Function Prototypes
 void parse_args(int argc, char **argv);
-char add_peer(int ip, short port);
+void peer_join(unsigned int ip, short port, unsigned int room);
+char* room_list();
+char* peer_list(unsigned int room);
+void test_hash_table();
 
 
 int main(int argc, char **argv){
@@ -65,20 +71,77 @@ int main(int argc, char **argv){
 
   //wait to accept connections from peers
 
+
+  test_hash_table();
+
   return 0;
 }
 
-char add_peer(unsigned int ip, short peer, unsigned int room){
+void peer_join(unsigned int ip, short peer, unsigned int room){
+  //setup entry
   struct peer *new_peer;
-  memset(&new_peer, 0, sizeof(new_peer));
-  //set key
-  char *ip_and_port_format = (char *)"%d:%d";
+  new_peer = (struct peer *)malloc(sizeof(struct peer));
+  char* ip_and_port_format = (char *)"%d:%d";
   sprintf(new_peer->ip_and_port, ip_and_port_format, ip, peer);
-  //set value
   new_peer->room = room;
-  //add to table
-  HASH_ADD_STR( peers, ip_and_port, new_peer );
-  return 'a';
+  
+  struct peer *s;
+  HASH_FIND_STR(peers, (new_peer->ip_and_port), s);  /* peer already in the hash? */
+  if(s==NULL){ 
+    //peer not found - join
+    HASH_ADD_STR( peers, ip_and_port, new_peer );
+  }else{
+    //peer found - switch
+    HASH_ADD_STR( peers, ip_and_port, new_peer );
+  }
+
+}
+
+char* room_list(){
+  int room_stats[MAX_NUM_ROOMS];
+  memset(room_stats, 0, MAX_NUM_ROOMS * sizeof(room_stats[0]));
+  struct peer *s;
+
+  for(s=peers; s != NULL; s=(peer *)s->hh.next){
+    printf("ip_and_port: %s -> room: %d\n", s->ip_and_port, s->room);
+    room_stats[s->room] = room_stats[s->room]+1;
+  }
+
+  int max_room_size_len = (int)floor(log10((float)MAX_ROOM_SIZE)) + 1;
+  int max_num_room_len = (int)floor(log10((float)MAX_NUM_ROOMS)) + 1;
+  char *list_entry_format = (char *)"room: %d - %d/%d\n";
+  char *list_entry = (char *)malloc(max_num_room_len +2*max_room_size_len+strlen(list_entry_format));
+  char *list = (char *)malloc(max_num_room_len*(max_num_room_len+2*max_room_size_len+strlen(list_entry_format)));
+  unsigned int i;
+  char *list_i = list;
+  for(i=0; i<sizeof(room_stats)/sizeof(room_stats[0]); i++){
+    sprintf(list_entry, list_entry_format, i, room_stats[i], MAX_NUM_ROOMS);
+    strcpy(list_i, list_entry);
+    list_i += strlen(list_entry);
+  }
+
+  return list;
+}
+
+char* peer_list(unsigned int room){
+  struct peer *s;
+  int num_in_room = 0;
+  for(s=peers; s != NULL; s=(peer *)s->hh.next){
+    if(s->room==room){
+      num_in_room = num_in_room+1;
+
+    }
+  }
+
+  char *list = (char *)malloc(num_in_room*20);
+  char *list_i = list;
+  for(s=peers; s != NULL; s=(peer *)s->hh.next){
+    if(s->room==room){
+      strcpy(list_i, s->ip_and_port);
+      list_i += strlen(s->ip_and_port);
+    }
+  }
+  return list;
 }
 
 void parse_args(int argc, char **argv){
@@ -109,4 +172,13 @@ void parse_args(int argc, char **argv){
     }
     g_usPort = ulPort;
   }
+}
+
+void test_hash_table(){
+  fprintf(stderr, "test hash table\n");
+  peer_join(1234, 1, 0);
+  peer_join(6969, 2, 0);
+  peer_join(420, 2, 1);
+  fprintf(stderr, "room list\n%s\n", room_list());
+  fprintf(stderr, "peer list for room 0\n%s\n", peer_list(0));
 }
