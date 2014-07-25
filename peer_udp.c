@@ -31,6 +31,7 @@ void join_room_request(int new_room_num);
 void leave_room_request();
 void send_message(char *msg);
 void request_available_rooms();
+void get_room_info();
 
 void receive_packet();
 void create_room_reply(packet *pkt);
@@ -39,6 +40,7 @@ void leave_room_reply(packet *pkt);
 void user_connection_updates(packet *pkt);
 void receive_available_rooms(packet *pkt);
 void receive_message(struct sockaddr_in *sender_addr, packet *pkt);
+void reply_to_ping(struct sockaddr_in *sender_addr);
 
 void setup_test_peers();
 
@@ -144,6 +146,9 @@ void * read_input(void *ptr) {
 			case 'r':
 				request_available_rooms();
 				break;
+			case 'i':
+				get_room_info();
+				break;
 			default:
 				pthread_mutex_lock(&stdout_lock);
 				fprintf(stderr, "%s\n", "error - request type unknown.");
@@ -188,6 +193,9 @@ void receive_packet() {
 			case 'm':
 				receive_message(&sender_addr, &pkt);
 				break;
+			case 'p':
+				reply_to_ping(&sender_addr);
+				break;
 			default:
 				pthread_mutex_lock(&stdout_lock);
 				fprintf(stderr, "%s\n", "error - received packet type unknown.");
@@ -205,7 +213,7 @@ void create_room_request() {
 	pkt.header.payload_length = 0;
 
 	// send packet to tracker
-	int status = sendto(sock, &pkt, sizeof(pkt.header), 0, (struct sockaddr *)&tracker_addr, sizeof(tracker_addr));
+	int status = sendto(sock, &pkt, sizeof(pkt.header), 0, (struct sockaddr *)&tracker_addr, sizeof(struct sockaddr_in));
 	if (status == -1) {
 		pthread_mutex_lock(&stdout_lock);
 		fprintf(stderr, "%s\n", "error - error sending packet to tracker");
@@ -221,7 +229,7 @@ void join_room_request(int new_room_num) {
 	pkt.header.payload_length = 0;
 
 	// send packet to tracker
-	int status = sendto(sock, &pkt, sizeof(pkt.header), 0, (struct sockaddr *)&tracker_addr, sizeof(tracker_addr));
+	int status = sendto(sock, &pkt, sizeof(pkt.header), 0, (struct sockaddr *)&tracker_addr, sizeof(struct sockaddr_in));
 	if (status == -1) {
 		pthread_mutex_lock(&stdout_lock);
 		fprintf(stderr, "%s\n", "error - error sending packet to tracker");
@@ -237,7 +245,7 @@ void leave_room_request() {
 	pkt.header.payload_length = 0;
 
 	// send packet to tracker
-	int status = sendto(sock, &pkt, sizeof(pkt.header), 0, (struct sockaddr *)&tracker_addr, sizeof(tracker_addr));
+	int status = sendto(sock, &pkt, sizeof(pkt.header), 0, (struct sockaddr *)&tracker_addr, sizeof(struct sockaddr_in));
 	if (status == -1) {
 		pthread_mutex_lock(&stdout_lock);
 		fprintf(stderr, "%s\n", "error - error sending packet to tracker");
@@ -259,17 +267,16 @@ void send_message(char *msg) {
 	pkt.header.room = room_num;
 	pkt.header.payload_length = strlen(msg) + 1;
 	memcpy(pkt.payload, msg, pkt.header.payload_length);
-	// printf("%s\n", pkt.payload);
 
 	// send packet to every peer
 	int i;
 	int status;
 	pthread_mutex_lock(&peer_list_lock);
 	for (i = 0; i < peer_num; i++) {
-		status = sendto(sock, &pkt, sizeof(pkt.header) + pkt.header.payload_length, 0, (struct sockaddr *)&(peer_list[i]), sizeof(peer_list[i]));
+		status = sendto(sock, &pkt, sizeof(pkt.header) + pkt.header.payload_length, 0, (struct sockaddr *)&(peer_list[i]), sizeof(struct sockaddr_in));
 		if (status == -1) {
 			pthread_mutex_lock(&stdout_lock);
-			fprintf(stderr, "%s %d %d:%d\n", "error - error sending packet to peer", i, peer_list[i].sin_addr.s_addr, peer_list[i].sin_port);
+			fprintf(stderr, "%s %d\n", "error - error sending packet to peer", i);
 			pthread_mutex_unlock(&stdout_lock);
 		}
 	}
@@ -285,12 +292,33 @@ void request_available_rooms() {
 	pkt.header.payload_length = 0;
 
 	// send packet to tracker
-	int status = sendto(sock, &pkt, sizeof(pkt.header), 0, (struct sockaddr *)&tracker_addr, sizeof(tracker_addr));
+	int status = sendto(sock, &pkt, sizeof(pkt.header), 0, (struct sockaddr *)&tracker_addr, sizeof(struct sockaddr_in));
 	if (status == -1) {
 		pthread_mutex_lock(&stdout_lock);
 		fprintf(stderr, "%s\n", "error - error sending packet to tracker");
 		pthread_mutex_unlock(&stdout_lock);
 	}
+}
+
+// local method that print out a list of all peer in the chatroom
+void get_room_info() {
+	pthread_mutex_lock(&stdout_lock);
+	if (peer_num == 0) {
+		fprintf(stderr, "%s\n", "error - you are not in any room!");
+	}
+	else {
+		printf("%s %d\n", "you are in chatroom number", room_num);
+		printf("%s\n", "member: ");
+		int i;
+		char *peer_ip;
+		short peer_port;
+		for (i = 0; i < peer_num; i++) {
+			peer_ip = inet_ntoa(peer_list[i].sin_addr);
+			peer_port = htons(peer_list[i].sin_port);
+			printf("%s:%d\n", peer_ip, peer_port);
+		}
+	}
+	pthread_mutex_unlock(&stdout_lock);
 }
 
 void create_room_reply(packet *pkt) {
@@ -428,7 +456,7 @@ void receive_available_rooms(packet *pkt) {
 		printf("%d | %d\n", room_info[2 * i], room_info[2 * i + 1]);
 	}
 	*/
-	printf("Room List:\n%s\n", pkt->payload);
+	printf("Room List: \n%s", pkt->payload);
 	pthread_mutex_unlock(&stdout_lock);
 }
 
@@ -441,6 +469,22 @@ void receive_message(struct sockaddr_in *sender_addr, packet *pkt) {
 	if (pkt->header.room == room_num) {
 		pthread_mutex_lock(&stdout_lock);
 		printf("%s:%d - %s\n", sender_ip, sender_port, pkt->payload);
+		pthread_mutex_unlock(&stdout_lock);
+	}
+}
+
+void reply_to_ping(struct sockaddr_in *sender_addr) {
+	// format packet
+	packet pkt;
+	pkt.header.type = 'p';
+	pkt.header.error = '\0';
+	pkt.header.payload_length = 0;
+
+	// send ping reply
+	int status = sendto(sock, &pkt, sizeof(pkt.header), 0, (struct sockaddr *)&sender_addr, sizeof(struct sockaddr_in));
+	if (status == -1) {
+		pthread_mutex_lock(&stdout_lock);
+		fprintf(stderr, "%s\n", "error - error replying to ping message, possibility of being opt-out.");
 		pthread_mutex_unlock(&stdout_lock);
 	}
 }

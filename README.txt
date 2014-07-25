@@ -7,7 +7,7 @@ to run tracker program, it takes in one optional parameter:
 	if tracker_port is not specified, it is set to 8080 by default
 
 to run peer program, it takes in 3 parameters: 
-	./peer_udp %tracker_ip% %tracker_port% %peer_port%
+	./peer %tracker_ip% %tracker_port% %peer_port%
 
 peer program takes user inputs, and below is the input format:
 
@@ -19,5 +19,7 @@ to request to join or switch to a new room:
 	-j %new_chatroom_number%
 to request to leave a room
 	-l
+to request a list of all peers in the current chatroom: 
+	-i
 to send a message to peers in the chatroom: 
 	-m %message_that_you_want_to_send%
