@@ -16,9 +16,6 @@
 #include "message.h"
 
 int sock;
-// int peer_port;
-// int tracker_port;
-// char tracker_ip[20];
 struct sockaddr_in tracker_addr;
 struct sockaddr_in self_addr;
 struct sockaddr_in peer_list[100];
@@ -29,35 +26,54 @@ pthread_mutex_t stdout_lock;
 
 // Function Prototypes
 void parse_args(int argc, char **argv);
-void read_input();
+
+void * read_input(void *ptr);
 void create_room_request();
 void join_room_request(int new_room_num);
 void leave_room_request();
 void send_message(char *msg);
 void request_available_rooms();
 
+void receive_packet();
+void create_room_reply(packet *pkt);
+void join_room_reply(packet *pkt);
+void leave_room_reply(packet *pkt);
+void user_connection_updates(packet *pkt);
+void receive_available_rooms(packet *pkt);
+void receive_message(struct sockaddr_in *sender_addr, packet *pkt);
+
+void setup_test_peers();
+
+
 int main(int argc, char **argv) {
 
 	sock = socket(AF_INET, SOCK_DGRAM, 0);
 	if (sock < 0) {
-		fprintf(stderr, "%s\n", "error : error creating socket.");
+		fprintf(stderr, "%s\n", "error - error creating socket.");
 		abort();
 	}
 
 	parse_args(argc, argv);
 
 	if (bind(sock, (struct sockaddr *)&self_addr, sizeof(self_addr))) {
-		fprintf(stderr, "%s\n", "error : error binding.");
+		fprintf(stderr, "%s\n", "error - error binding.");
 		abort();
 	}
 
-	read_input();
+	setup_test_peers();
+
+	// create a thread to read user input
+	pthread_t input_thread;
+	pthread_create(&input_thread, NULL, read_input, NULL);
+	pthread_detach(input_thread);
+
+	receive_packet();
 
 }
 
 void parse_args(int argc, char **argv) {
 	if (argc != 4) {
-		fprintf(stderr, "%s\n", "error : Argument number not correct");
+		fprintf(stderr, "%s\n", "error - Argument number not correct");
 	}
 
 	short tracker_port = atoi(argv[2]);
@@ -71,13 +87,13 @@ void parse_args(int argc, char **argv) {
 
 	tracker_addr.sin_family = AF_INET; 
 	if (inet_aton(tracker_ip, &tracker_addr.sin_addr) == 0) {
-		fprintf(stderr, "%s\n", "error : error parsing tracker ip.");
+		fprintf(stderr, "%s\n", "error - error parsing tracker ip.");
 		abort();
 	}
 	tracker_addr.sin_port = htons(tracker_port);
 }
 
-void read_input() {
+void * read_input(void *ptr) {
 
 	char line[1000];
 	char *p;
@@ -89,7 +105,7 @@ void read_input() {
 		// while ((ch = getchar()) != '\n' && ch != EOF);
 		if (p == NULL) {
 			pthread_mutex_lock(&stdout_lock);
-			fprintf(stderr, "%s\n", "error : cannot read input");
+			fprintf(stderr, "%s\n", "error - cannot read input");
 			pthread_mutex_unlock(&stdout_lock);
 			continue;
 		}
@@ -103,7 +119,7 @@ void read_input() {
 		// parse input
 		if (line[0] != '-') {
 			pthread_mutex_lock(&stdout_lock);
-			fprintf(stderr, "%s\n", "error : input format is not correct.");
+			fprintf(stderr, "%s\n", "error - input format is not correct.");
 			pthread_mutex_unlock(&stdout_lock);
 			continue;
 		}
@@ -116,7 +132,7 @@ void read_input() {
 				new_room_num = atoi(line + 3);
 				if (new_room_num < 0) {
 					pthread_mutex_lock(&stdout_lock);
-					fprintf(stderr, "%s\n", "error : room number invalid.");
+					fprintf(stderr, "%s\n", "error - room number invalid.");
 					pthread_mutex_unlock(&stdout_lock);
 				}
 				else {
@@ -134,7 +150,51 @@ void read_input() {
 				break;
 			default:
 				pthread_mutex_lock(&stdout_lock);
-				fprintf(stderr, "%s\n", "error : request type unknown.");
+				fprintf(stderr, "%s\n", "error - request type unknown.");
+				pthread_mutex_unlock(&stdout_lock);
+				break;
+		}
+	}
+}
+
+void receive_packet() {
+
+	struct sockaddr_in sender_addr;
+	socklen_t addrlen = 10;
+	packet pkt;
+	int status;
+
+	while (1) {
+		status = recvfrom(sock, &pkt, sizeof(pkt), 0, (struct sockaddr *)&sender_addr, &addrlen);
+		if (status == -1) {
+			pthread_mutex_lock(&stdout_lock);
+			fprintf(stderr, "%s\n", "error - error receiving a packet, ignoring.");
+			pthread_mutex_unlock(&stdout_lock);
+			continue;
+		}
+
+		switch (pkt.header.type) {
+			case 'c': 
+				create_room_reply(&pkt);
+				break;
+			case 'j':
+				join_room_reply(&pkt);
+				break;
+			case 'l':
+				leave_room_reply(&pkt);
+				break;
+			case 'u': 
+				user_connection_updates(&pkt);
+				break;
+			case 'r':
+				receive_available_rooms(&pkt);
+				break;
+			case 'm':
+				receive_message(&sender_addr, &pkt);
+				break;
+			default:
+				pthread_mutex_lock(&stdout_lock);
+				fprintf(stderr, "%s\n", "error - received packet type unknown.");
 				pthread_mutex_unlock(&stdout_lock);
 				break;
 		}
@@ -152,7 +212,7 @@ void create_room_request() {
 	int status = sendto(sock, &pkt, sizeof(pkt.header), 0, (struct sockaddr *)&tracker_addr, sizeof(tracker_addr));
 	if (status == -1) {
 		pthread_mutex_lock(&stdout_lock);
-		fprintf(stderr, "%s\n", "error : error sending packet to tracker");
+		fprintf(stderr, "%s\n", "error - error sending packet to tracker");
 		pthread_mutex_unlock(&stdout_lock);
 	}
 }
@@ -168,7 +228,7 @@ void join_room_request(int new_room_num) {
 	int status = sendto(sock, &pkt, sizeof(pkt.header), 0, (struct sockaddr *)&tracker_addr, sizeof(tracker_addr));
 	if (status == -1) {
 		pthread_mutex_lock(&stdout_lock);
-		fprintf(stderr, "%s\n", "error : error sending packet to tracker");
+		fprintf(stderr, "%s\n", "error - error sending packet to tracker");
 		pthread_mutex_unlock(&stdout_lock);
 	}
 }
@@ -184,7 +244,7 @@ void leave_room_request() {
 	int status = sendto(sock, &pkt, sizeof(pkt.header), 0, (struct sockaddr *)&tracker_addr, sizeof(tracker_addr));
 	if (status == -1) {
 		pthread_mutex_lock(&stdout_lock);
-		fprintf(stderr, "%s\n", "error : error sending packet to tracker");
+		fprintf(stderr, "%s\n", "error - error sending packet to tracker");
 		pthread_mutex_unlock(&stdout_lock);
 	}
 }
@@ -192,7 +252,7 @@ void leave_room_request() {
 void send_message(char *msg) {
 	if (msg[0] == '\0') {
 		pthread_mutex_lock(&stdout_lock);
-		fprintf(stderr, "%s\n", "error : no message content.");
+		fprintf(stderr, "%s\n", "error - no message content.");
 		pthread_mutex_unlock(&stdout_lock);
 	}
 
@@ -203,7 +263,7 @@ void send_message(char *msg) {
 	pkt.header.room = room_num;
 	pkt.header.payload_length = strlen(msg) + 1;
 	memcpy(pkt.payload, msg, pkt.header.payload_length);
-	printf("%s\n", pkt.payload);
+	// printf("%s\n", pkt.payload);
 
 	// send packet to every peer
 	int i;
@@ -212,7 +272,7 @@ void send_message(char *msg) {
 		status = sendto(sock, &pkt, sizeof(pkt.header) + pkt.header.payload_length, 0, (struct sockaddr *)&(peer_list[i]), sizeof(peer_list[i]));
 		if (status == -1) {
 			pthread_mutex_lock(&stdout_lock);
-			fprintf(stderr, "%s %d\n", "error : error sending packet to peer", i);
+			fprintf(stderr, "%s %d\n", "error - error sending packet to peer", i);
 			pthread_mutex_unlock(&stdout_lock);
 		}
 	}
@@ -230,8 +290,40 @@ void request_available_rooms() {
 	int status = sendto(sock, &pkt, sizeof(pkt.header), 0, (struct sockaddr *)&tracker_addr, sizeof(tracker_addr));
 	if (status == -1) {
 		pthread_mutex_lock(&stdout_lock);
-		fprintf(stderr, "%s\n", "error : error sending packet to tracker");
+		fprintf(stderr, "%s\n", "error - error sending packet to tracker");
 		pthread_mutex_unlock(&stdout_lock);
 	}
+}
+
+void create_room_reply(packet *pkt) {}
+void join_room_reply(packet *pkt) {}
+void leave_room_reply(packet *pkt) {}
+void user_connection_updates(packet *pkt) {}
+void receive_available_rooms(packet *pkt) {}
+
+void receive_message(struct sockaddr_in *sender_addr, packet *pkt) {
+	// fetch sender information
+	char *sender_ip = inet_ntoa(sender_addr->sin_addr);
+	short sender_port = htons(sender_addr->sin_port);
+
+	// display message in stdout
+	pthread_mutex_lock(&stdout_lock);
+	printf("%s:%d - %s\n", sender_ip, sender_port, pkt->payload);
+	pthread_mutex_unlock(&stdout_lock);
+}
+
+void setup_test_peers() {
+	char test_ip[] = "127.0.0.1";
+	peer_num = 3;
+
+	peer_list[0].sin_family = AF_INET; 
+	inet_aton(test_ip, &peer_list[0].sin_addr);
+	peer_list[0].sin_port = htons(8081);
+	peer_list[1].sin_family = AF_INET; 
+	inet_aton(test_ip, &peer_list[1].sin_addr);
+	peer_list[1].sin_port = htons(8082);
+	peer_list[2].sin_family = AF_INET; 
+	inet_aton(test_ip, &peer_list[2].sin_addr);
+	peer_list[2].sin_port = htons(8083);
 }
 
