@@ -19,10 +19,11 @@ int sock;
 struct sockaddr_in tracker_addr;
 struct sockaddr_in self_addr;
 struct sockaddr_in peer_list[100];
-int room_num = -1;
+unsigned int room_num = 0;
 int peer_num = 0;
 
 pthread_mutex_t stdout_lock;
+pthread_mutex_t peer_list_lock;
 
 // Function Prototypes
 void parse_args(int argc, char **argv);
@@ -60,7 +61,7 @@ int main(int argc, char **argv) {
 		abort();
 	}
 
-	setup_test_peers();
+	// setup_test_peers();
 
 	// create a thread to read user input
 	pthread_t input_thread;
@@ -68,7 +69,6 @@ int main(int argc, char **argv) {
 	pthread_detach(input_thread);
 
 	receive_packet();
-
 }
 
 void parse_args(int argc, char **argv) {
@@ -268,6 +268,7 @@ void send_message(char *msg) {
 	// send packet to every peer
 	int i;
 	int status;
+	pthread_mutex_lock(&peer_list_lock);
 	for (i = 0; i < peer_num; i++) {
 		status = sendto(sock, &pkt, sizeof(pkt.header) + pkt.header.payload_length, 0, (struct sockaddr *)&(peer_list[i]), sizeof(peer_list[i]));
 		if (status == -1) {
@@ -276,6 +277,7 @@ void send_message(char *msg) {
 			pthread_mutex_unlock(&stdout_lock);
 		}
 	}
+	pthread_mutex_unlock(&peer_list_lock);
 }
 
 void request_available_rooms() {
@@ -295,21 +297,139 @@ void request_available_rooms() {
 	}
 }
 
-void create_room_reply(packet *pkt) {}
-void join_room_reply(packet *pkt) {}
-void leave_room_reply(packet *pkt) {}
-void user_connection_updates(packet *pkt) {}
-void receive_available_rooms(packet *pkt) {}
+void create_room_reply(packet *pkt) {
+	// error checking
+	char error = pkt->header.error;
+	if (error != '\0') {
+		pthread_mutex_lock(&stdout_lock);
+		if (error == 'o') {
+			fprintf(stderr, "%s\n", "error - the application is out of chatroom!");
+		}
+		else if (error == 'e') {
+			fprintf(stderr, "%s\n", "error - you already exist in a chatroom!");
+		}
+		else {
+			fprintf(stderr, "%s\n", "error - unspecified error.");
+		}
+		pthread_mutex_unlock(&stdout_lock);
+		return;
+	}
+
+	pthread_mutex_lock(&peer_list_lock);
+	room_num = pkt->header.room;
+	peer_num = 1;
+	memcpy(peer_list, &self_addr, sizeof(struct sockaddr_in));
+	pthread_mutex_unlock(&peer_list_lock);
+}
+
+void join_room_reply(packet *pkt) {
+	// error checking
+	char error = pkt->header.error;
+	if (error != '\0') {
+		pthread_mutex_lock(&stdout_lock);
+		if (error == 'f') {
+			fprintf(stderr, "%s\n", "error - the chatroom is full!");
+		}
+		else if (error == 'e') {
+			fprintf(stderr, "%s\n", "error - the chatroom does not exist!");
+		}
+		else if (error == 'a') {
+			fprintf(stderr, "%s\n", "error - you are already in a chatroom!");
+		}
+		else {
+			fprintf(stderr, "%s\n", "error - unspecified error.");
+		}
+		pthread_mutex_unlock(&stdout_lock);
+		return;
+	}
+
+	pthread_mutex_lock(&peer_list_lock);
+	room_num = pkt->header.room;
+	// store sockaddr list in payload
+	peer_num = pkt->header.payload_length / sizeof(struct sockaddr_in);
+	if (peer_num <= 0) {
+		pthread_mutex_lock(&stdout_lock);
+		fprintf(stderr, "%s\n", "error - peer list missing, can't join chatroom, leaving old chatroom if switching.");
+		pthread_mutex_unlock(&stdout_lock);
+		room_num = 0;
+		peer_num = 0;
+	}
+	else {
+		memcpy(peer_list, pkt->payload, peer_num * sizeof(struct sockaddr_in));
+	}
+	pthread_mutex_unlock(&peer_list_lock);
+}
+
+void leave_room_reply(packet *pkt) {
+	// error checking
+	char error = pkt->header.error;
+	if (error != '\0') {
+		pthread_mutex_lock(&stdout_lock);
+		if (error == 'e') {
+			fprintf(stderr, "%s\n", "error - you are not in any chatroom!");
+		}
+		else {
+			fprintf(stderr, "%s\n", "error - unspecified error.");
+		}
+		pthread_mutex_unlock(&stdout_lock);
+		return;
+	}
+
+	pthread_mutex_lock(&peer_list_lock);
+	room_num = 0;
+	peer_num = 0;
+	pthread_mutex_unlock(&peer_list_lock);
+}
+
+void user_connection_updates(packet *pkt) {
+
+	pthread_mutex_lock(&peer_list_lock);
+	// store sockaddr list in payload
+	int new_peer_num = pkt->header.payload_length / sizeof(struct sockaddr_in);
+	if (new_peer_num <= 0) {
+		pthread_mutex_lock(&stdout_lock);
+		fprintf(stderr, "%s\n", "error - peer list missing.");
+		pthread_mutex_unlock(&stdout_lock);
+	}
+	else {
+		peer_num = new_peer_num;
+		memcpy(peer_list, pkt->payload, peer_num * sizeof(struct sockaddr_in));
+	}
+	pthread_mutex_unlock(&peer_list_lock);
+}
+
+void receive_available_rooms(packet *pkt) {
+
+	unsigned int *room_info = (unsigned int *)(pkt->payload);
+	// check if length of payload is a power of 8 (2 unsigned int)
+	int num_of_rooms = pkt->header.payload_length / 8;
+	if (pkt->header.payload_length / 8) {
+		pthread_mutex_lock(&stdout_lock);
+		fprintf(stderr, "%s\n", "warning - packet not in correct format, available room list may be corrupted.");
+		pthread_mutex_unlock(&stdout_lock);
+	}
+
+	int i;
+	pthread_mutex_lock(&stdout_lock);
+	printf("%s\n", "available room list: ");
+	printf("%s\n", "chatroom number | number of chatters");
+	for (i = 0; i < num_of_rooms; i++) {
+		printf("%d | %d\n", room_info[2 * i], room_info[2 * i + 1]);
+	}
+	pthread_mutex_unlock(&stdout_lock);
+}
 
 void receive_message(struct sockaddr_in *sender_addr, packet *pkt) {
 	// fetch sender information
 	char *sender_ip = inet_ntoa(sender_addr->sin_addr);
 	short sender_port = htons(sender_addr->sin_port);
 
-	// display message in stdout
-	pthread_mutex_lock(&stdout_lock);
-	printf("%s:%d - %s\n", sender_ip, sender_port, pkt->payload);
-	pthread_mutex_unlock(&stdout_lock);
+	// display message in stdout if the message is from the chatroom that peer is in
+	if (pkt->header.room == room_num) {
+		pthread_mutex_lock(&stdout_lock);
+		printf("%s:%d - %s\n", sender_ip, sender_port, pkt->payload);
+		pthread_mutex_unlock(&stdout_lock);
+	}
 }
 
 void setup_test_peers() {
