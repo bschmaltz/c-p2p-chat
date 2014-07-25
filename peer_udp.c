@@ -377,6 +377,7 @@ void leave_room_reply(packet *pkt) {
 	room_num = 0;
 	peer_num = 0;
 	pthread_mutex_unlock(&peer_list_lock);
+	fprintf(stderr, "You've left your current chatroom.\n");
 }
 
 void user_connection_updates(packet *pkt) {
@@ -398,6 +399,7 @@ void user_connection_updates(packet *pkt) {
 
 void receive_available_rooms(packet *pkt) {
 
+	/*
 	unsigned int *room_info = (unsigned int *)(pkt->payload);
 	// check if length of payload is a power of 8 (2 unsigned int)
 	int num_of_rooms = pkt->header.payload_length / 8;
@@ -408,12 +410,16 @@ void receive_available_rooms(packet *pkt) {
 	}
 
 	int i;
+	*/
 	pthread_mutex_lock(&stdout_lock);
+	/*
 	printf("%s\n", "available room list: ");
 	printf("%s\n", "chatroom number | number of chatters");
 	for (i = 0; i < num_of_rooms; i++) {
 		printf("%d | %d\n", room_info[2 * i], room_info[2 * i + 1]);
 	}
+	*/
+	printf("Room List:\n%s\n", pkt->payload);
 	pthread_mutex_unlock(&stdout_lock);
 }
 

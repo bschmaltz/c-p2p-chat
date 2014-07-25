@@ -33,7 +33,7 @@ short parse_args(int argc, char **argv);
 void peer_create_room(unsigned int ip, short port);
 void peer_join(unsigned int ip, short port, unsigned int room);
 void peer_leave(unsigned int ip, short port);
-void room_list();
+void room_list(unsigned int ip, short port);
 void peer_list(unsigned int room);
 void send_error(unsigned int ip, short port, char type, char error);
 int get_total_num_rooms();
@@ -87,7 +87,7 @@ int main(int argc, char **argv){
           peer_leave(ip, port);
           break;
         case 'r':
-          room_list();
+          room_list(ip, port);
           break;
         default:
           fprintf(stderr, "%s\n", "error - received packet type unknown.");
@@ -216,10 +216,24 @@ void peer_leave(unsigned int ip, short port){
     HASH_DEL( peers, s);
     free(s);
     fprintf(stderr, "%s left %d\n", ip_port, left_room);
+
+    packet pkt;
+    pkt.header.type = 'l';
+    pkt.header.error = '\0';
+    pkt.header.payload_length = 0;
+    struct sockaddr_in peer_addr = get_sockaddr_in(ip, port);
+    int status = sendto(sock, &pkt, sizeof(pkt.header), 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
+    if (status == -1) {
+      fprintf(stderr, "%s\n", "error - error sending packet to peer");
+    }
+  }else{
+    send_error(ip, port, 'l', 'e');
   }
+
+  //TODO: UPDATE PEERS IN ROOM
 }
 
-void room_list(){
+void room_list(unsigned int ip, short port){
   int number_of_rooms = get_total_num_rooms();
   unsigned int room_indexed[number_of_rooms];
   memset(room_indexed, 0, number_of_rooms * sizeof(room_indexed[0]));
@@ -266,8 +280,10 @@ void room_list(){
   int max_room_size_len = (int)floor(log10((float)MAX_ROOM_SIZE)) + 1;
   int max_num_room_len = (int)floor(log10((float)max_occupants)) + 1;
   char *list_entry_format = (char *)"room: %d - %d/%d\n";
-  char *list_entry = (char *)malloc(max_room_num_len+max_num_room_len+max_room_size_len+strlen(list_entry_format)+1);
-  char *list = (char *)malloc(max_num_room_len*(max_room_num_len+max_num_room_len+max_room_size_len+strlen(list_entry_format))+1);
+  int list_entry_size = max_room_num_len+max_num_room_len+max_room_size_len+strlen(list_entry_format);
+  int list_size = max_num_room_len*list_entry_size;
+  char *list_entry = (char *)malloc(list_entry_size);
+  char *list = (char *)malloc(list_size);
   unsigned int i;
   char *list_i = list;
   for(i=0; i<sizeof(room_stats)/sizeof(room_stats[0]); i++){
@@ -275,7 +291,21 @@ void room_list(){
     strcpy(list_i, list_entry);
     list_i += strlen(list_entry);
   }
+  if(number_of_rooms==0){
+    list=(char*)"There are no chatrooms\n";
+  }
   fprintf(stderr, "room list\n%s\n", list);
+
+  packet pkt;
+  pkt.header.type = 'r';
+  pkt.header.error = '\0';
+  pkt.header.payload_length = list_size;
+  strcpy(pkt.payload, list);
+  struct sockaddr_in peer_addr = get_sockaddr_in(ip, port);
+  int status = sendto(sock, &pkt, sizeof(pkt), 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
+  if (status == -1) {
+    fprintf(stderr, "%s\n", "error - error sending packet to peer");
+  }
 }
 
 void peer_list(unsigned int room){
