@@ -317,6 +317,9 @@ void create_room_reply(packet *pkt) {
 	peer_num = 1;
 	memcpy(peer_list, &self_addr, sizeof(struct sockaddr_in));
 	pthread_mutex_unlock(&peer_list_lock);
+	pthread_mutex_lock(&stdout_lock);
+	printf("%s %d %s\n", "chatroom", room_num, "created.");
+	pthread_mutex_unlock(&stdout_lock);
 }
 
 void join_room_reply(packet *pkt) {
@@ -353,6 +356,9 @@ void join_room_reply(packet *pkt) {
 	}
 	else {
 		memcpy(peer_list, pkt->payload, peer_num * sizeof(struct sockaddr_in));
+		pthread_mutex_lock(&stdout_lock);
+		printf("%s %d\n", "you have joined chatroom", room_num);
+		pthread_mutex_unlock(&stdout_lock);
 	}
 	pthread_mutex_unlock(&peer_list_lock);
 }
@@ -376,6 +382,9 @@ void leave_room_reply(packet *pkt) {
 	room_num = 0;
 	peer_num = 0;
 	pthread_mutex_unlock(&peer_list_lock);
+	pthread_mutex_lock(&stdout_lock);
+	printf("%s\n", "you have left the chatroom.");
+	pthread_mutex_unlock(&stdout_lock);
 }
 
 void user_connection_updates(packet *pkt) {
