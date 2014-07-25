@@ -14,6 +14,7 @@
 #include <locale.h>
 #include <math.h>
 #include "uthash.h"
+#include "message.h"
 #define MAX_NUM_ROOMS 5
 #define MAX_ROOM_SIZE 5
 
@@ -25,12 +26,10 @@ struct peer {
 
 // Globals
 struct peer *peers;
-char input_buffer[65535];
 
 // Function Prototypes
-char* parse_args(int argc, char **argv);
-char* handle_request();
-void peer_create_room(unsigned int ip, short port, unsigned int room);
+short parse_args(int argc, char **argv);
+void peer_create_room(unsigned int ip, short port);
 void peer_join(unsigned int ip, short port, unsigned int room);
 void peer_leave(unsigned int ip, short port);
 void room_list();
@@ -43,31 +42,61 @@ int main(int argc, char **argv){
   peers = NULL;
   fprintf(stderr, "Hashtable created\n");
   //read input
-  char* port = parse_args(argc, argv);
-  fprintf(stderr, "Starting server on port: %s\n", port);
+  short port = parse_args(argc, argv);
+  fprintf(stderr, "Starting server on port: %d\n", port);
 
-  
+  //setup UDP socket
+  int sock = socket(AF_INET, SOCK_DGRAM, 0);
+  if (sock < 0) {
+    fprintf(stderr, "%s\n", "error - error creating socket.");
+    abort();
+  }
+  struct sockaddr_in self_addr;
+  self_addr.sin_family = AF_INET; 
+  self_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+  self_addr.sin_port = htons(port);
+  if (bind(sock, (struct sockaddr *)&self_addr, sizeof(self_addr))) {
+    fprintf(stderr, "%s\n", "error - error binding.");
+    abort();
+  }
+  socklen_t addrlen = 10;
+  struct sockaddr_in sender_addr;
+  packet recv_pkt;
+  int recv_status;
 
+  while(1){
+    recv_status = recvfrom(sock, &recv_pkt, sizeof(recv_pkt), 0, (struct sockaddr *)&sender_addr, &addrlen);
+    if (recv_status == -1) {
+      fprintf(stderr, "%s\n", "error - error receiving a packet, ignoring.");
+    }else{
+      fprintf(stderr, "%s\n", "handle request...");
+      unsigned int ip = sender_addr.sin_addr.s_addr;
+      short port = htons(sender_addr.sin_port);
+      fprintf(stderr, "%c\n", recv_pkt.header.type);
+      switch (recv_pkt.header.type) {
+        case 'c': 
+          fprintf(stderr, "%s\n", "create case");
+          peer_create_room(ip, port);
+          break;
+        case 'j':
+          peer_join(ip, port, recv_pkt.header.room);
+          break;
+        case 'l':
+          peer_leave(ip, port);
+          break;
+        case 'r':
+          room_list();
+          break;
+        default:
+          fprintf(stderr, "%s\n", "error - received packet type unknown.");
+          break;
+      }
+    }
+  }
   return 0;
 }
 
-char* handle_request(){
-  char* result;
-  if((char)input_buffer[0]=='c'){       //create room
-    result = (char*)"create room request";
-  }else if((char)input_buffer[0]=='r'){ //list rooms
-    result = (char*)"list rooms request";
-  }else if((char)input_buffer[0]=='j'){ //join/switch
-    result = (char*)"join room request";
-  }else if((char)input_buffer[0]=='l'){ //leave room
-    result = (char*)"leave room request";
-  }else{
-    result = (char*)"unknown request";
-  }
-  return result;
-}
-
-void peer_create_room(unsigned int ip, short port, unsigned int room){
+void peer_create_room(unsigned int ip, short port){
   //check if room limit reached
   int number_of_rooms = get_total_num_rooms();
   if(number_of_rooms>=MAX_NUM_ROOMS){
@@ -75,12 +104,21 @@ void peer_create_room(unsigned int ip, short port, unsigned int room){
     return;
   }
 
-  //check if room already exists
+  //get a room number
   struct peer *s;
-  for(s=peers; s != NULL; s=(struct peer *)s->hh.next){
-    if(s->room == room){
-      perror("Peer create room failed - room already exist.\n");
-      return;
+  int room_taken = 0;
+  unsigned int room;
+  for(room=1; room<MAX_NUM_ROOMS*2; room++){
+    for(s=peers; s != NULL; s=(struct peer *)s->hh.next){
+      if(s->room == room){
+        room_taken=1;
+        break;
+      }
+    }
+    if(room_taken==0){
+      break;
+    }else{
+      room_taken=0;
     }
   }
 
@@ -151,11 +189,11 @@ void peer_join(unsigned int ip, short port, unsigned int room){
   }
 }
 
-void peer_leave(unsigned int ip, short peer){
+void peer_leave(unsigned int ip, short port){
   char ip_port[20];
   memset(ip_port, 0, sizeof(ip_port));
   char* ip_and_port_format = (char *)"%d:%d";
-  sprintf(ip_port, ip_and_port_format, ip, peer);
+  sprintf(ip_port, ip_and_port_format, ip, port);
   struct peer *s;
   HASH_FIND_STR(peers, ip_port, s);
   if(s!=NULL){
@@ -246,10 +284,10 @@ void peer_list(unsigned int room){
   fprintf(stderr, "peer list for room %d\n%s\n", room, list);
 }
 
-char* parse_args(int argc, char **argv){
+short parse_args(int argc, char **argv){
   if (argc < 2)
   {
-    return (char *)"8080";
+    return 8080;
   }
   else
   {
@@ -272,7 +310,7 @@ char* parse_args(int argc, char **argv){
               argv[1], strerror(errno));
       abort();
     }
-    return argv[1];
+    return ulPort;
   }
 }
 
@@ -301,32 +339,4 @@ int get_total_num_rooms(){
   }
 
   return total;
-}
-
-void test_hash_table(){
-  fprintf(stderr, "test hash table\n");
-  peer_create_room(1234, 1, 0);
-  peer_leave(1234, 1);
-  peer_create_room(1234, 1, 5);
-  peer_create_room(1111, 1, 0);
-  peer_join(6969, 2, 0);
-  peer_join(88696988, 2, 0);
-  peer_create_room(420, 2, 1);
-  peer_join(420, 2, 1); //fail - user already in room
-  peer_join(420, 3, 1);
-  peer_join(420, 4, 1);
-  peer_join(420, 5, 1);
-  peer_join(420, 6, 1);
-  peer_join(420, 7, 1); //fail - room full
-  peer_leave(6969, 2);
-  peer_leave(444, 2);//unknown address, should just ignore
-  peer_join(1234, 1, 0);
-  room_list();
-  peer_list(0);
-  peer_list(1);
-  peer_list(5);
-  peer_create_room(419, 1, 10);
-  peer_create_room(419, 2, 11);
-  peer_create_room(419, 3, 12);
-  peer_create_room(419, 4, 13);
 }

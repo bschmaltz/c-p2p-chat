@@ -87,7 +87,7 @@ int main(int argc, char **argv){
 		return 0;
   	}
 	
-	parse_args(argc, argv);
+	// parse_args(argc, argv);
 	
 	// server = (struct hostent *) gethostbyname(tracker_ip);
 
