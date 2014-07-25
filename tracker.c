@@ -137,7 +137,6 @@ void peer_create_room(unsigned int ip, short port){
   //check if peer in a room
   HASH_FIND_STR(peers, (new_peer->ip_and_port), s);
   if(s!=NULL){
-    free(new_peer);
     perror("Peer create room failed - already in a room.\n");
     send_error(ip, port, 'c', 'e');
   }else{
