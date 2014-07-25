@@ -317,6 +317,7 @@ void create_room_reply(packet *pkt) {
 	peer_num = 1;
 	memcpy(peer_list, &self_addr, sizeof(struct sockaddr_in));
 	pthread_mutex_unlock(&peer_list_lock);
+	fprintf(stderr, "You've created and joined room: %d!\n", room_num);
 }
 
 void join_room_reply(packet *pkt) {

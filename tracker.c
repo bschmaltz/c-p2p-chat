@@ -26,6 +26,7 @@ struct peer {
 
 // Globals
 struct peer *peers;
+int sock;
 
 // Function Prototypes
 short parse_args(int argc, char **argv);
@@ -34,7 +35,9 @@ void peer_join(unsigned int ip, short port, unsigned int room);
 void peer_leave(unsigned int ip, short port);
 void room_list();
 void peer_list(unsigned int room);
+void send_error(unsigned int ip, short port, char type, char error);
 int get_total_num_rooms();
+sockaddr_in get_sockaddr_in(unsigned int ip, short port);
 void test_hash_table();
 
 int main(int argc, char **argv){
@@ -46,7 +49,7 @@ int main(int argc, char **argv){
   fprintf(stderr, "Starting server on port: %d\n", port);
 
   //setup UDP socket
-  int sock = socket(AF_INET, SOCK_DGRAM, 0);
+  sock = socket(AF_INET, SOCK_DGRAM, 0);
   if (sock < 0) {
     fprintf(stderr, "%s\n", "error - error creating socket.");
     abort();
@@ -75,7 +78,6 @@ int main(int argc, char **argv){
       fprintf(stderr, "%c\n", recv_pkt.header.type);
       switch (recv_pkt.header.type) {
         case 'c': 
-          fprintf(stderr, "%s\n", "create case");
           peer_create_room(ip, port);
           break;
         case 'j':
@@ -100,6 +102,7 @@ void peer_create_room(unsigned int ip, short port){
   //check if room limit reached
   int number_of_rooms = get_total_num_rooms();
   if(number_of_rooms>=MAX_NUM_ROOMS){
+    send_error(ip, port, 'c', 'o');
     perror("Peer create room failed - max number of rooms reached.\n");
     return;
   }
@@ -134,9 +137,21 @@ void peer_create_room(unsigned int ip, short port){
   if(s!=NULL){
     free(new_peer);
     perror("Peer create room failed - already in a room.\n");
+    send_error(ip, port, 'c', 'e');
   }else{
     HASH_ADD_STR( peers, ip_and_port, new_peer );  //create room - add peer
     fprintf(stderr, "%s created %d\n", new_peer->ip_and_port, room);
+
+    packet pkt;
+    pkt.header.type = 'c';
+    pkt.header.error = '\0';
+    pkt.header.room = room;
+    pkt.header.payload_length = 0;
+    struct sockaddr_in peer_addr = get_sockaddr_in(ip, port);
+    int status = sendto(sock, &pkt, sizeof(pkt.header), 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
+    if (status == -1) {
+      fprintf(stderr, "%s\n", "error - error sending packet to peer");
+    }
   }
 }
 
@@ -339,4 +354,25 @@ int get_total_num_rooms(){
   }
 
   return total;
+}
+
+void send_error(unsigned int ip, short port, char type, char error){
+  packet pkt;
+  pkt.header.type = type;
+  pkt.header.error = error;
+  pkt.header.payload_length = 0;
+
+  struct sockaddr_in peer_addr = get_sockaddr_in(ip, port);
+
+  int status = sendto(sock, &pkt, sizeof(pkt.header), 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
+  if (status == -1) {
+    fprintf(stderr, "%s\n", "error - error sending packet to peer");
+  }
+}
+sockaddr_in get_sockaddr_in(unsigned int ip, short port){
+  struct sockaddr_in addr;
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = ip;
+  addr.sin_port = htons(port);
+  return addr;
 }
