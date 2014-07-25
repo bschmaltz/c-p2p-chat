@@ -397,6 +397,9 @@ void user_connection_updates(packet *pkt) {
 		pthread_mutex_unlock(&stdout_lock);
 	}
 	else {
+		pthread_mutex_lock(&stdout_lock);
+		printf("%s\n", "room update recieved.");
+		pthread_mutex_unlock(&stdout_lock);
 		peer_num = new_peer_num;
 		memcpy(peer_list, pkt->payload, peer_num * sizeof(struct sockaddr_in));
 	}

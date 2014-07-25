@@ -34,10 +34,12 @@ void peer_create_room(unsigned int ip, short port);
 void peer_join(unsigned int ip, short port, unsigned int room);
 void peer_leave(unsigned int ip, short port);
 void room_list(unsigned int ip, short port);
-void peer_list(unsigned int room);
+void peer_list(unsigned int join_ip, short join_port, unsigned int room);
 void send_error(unsigned int ip, short port, char type, char error);
 int get_total_num_rooms();
 sockaddr_in get_sockaddr_in(unsigned int ip, short port);
+unsigned int get_ip(char* ip_port);
+short get_port(char* ip_port);
 void test_hash_table();
 
 int main(int argc, char **argv){
@@ -164,6 +166,7 @@ void peer_join(unsigned int ip, short port, unsigned int room){
       r = r+1;
       if(r>=MAX_ROOM_SIZE){
         perror("Peer join failed - room full.\n");
+        send_error(ip, port, 'j', 'f');
         return;
       }
       room_exists = 1;
@@ -171,6 +174,7 @@ void peer_join(unsigned int ip, short port, unsigned int room){
   }
   if (room_exists==0){
     perror("Peer join failed - room does not exist.\n");
+    send_error(ip, port, 'j', 'e');
     return;
   }
   
@@ -185,6 +189,7 @@ void peer_join(unsigned int ip, short port, unsigned int room){
   HASH_FIND_STR(peers, (new_peer->ip_and_port), s);
   if(s!=NULL && s->room==room){
     perror("Peer join failed - already in room.\n");
+    send_error(ip, port, 'j', 'a');
     return;
   }
   int old_room_update = -1;
@@ -199,8 +204,11 @@ void peer_join(unsigned int ip, short port, unsigned int room){
   }
   if(old_room_update!=-1){
     fprintf(stderr, "%s peer switched from %d to %d.\n", new_peer->ip_and_port, old_room_update, room);
+    peer_list(ip, port, room);
+    peer_list(0, -1, old_room_update);
   }else{
     fprintf(stderr, "%s joined %d\n", new_peer->ip_and_port, room);
+    peer_list(ip, port, room);
   }
 }
 
@@ -226,11 +234,10 @@ void peer_leave(unsigned int ip, short port){
     if (status == -1) {
       fprintf(stderr, "%s\n", "error - error sending packet to peer");
     }
+    peer_list(0, -1, left_room);
   }else{
     send_error(ip, port, 'l', 'e');
   }
-
-  //TODO: UPDATE PEERS IN ROOM
 }
 
 void room_list(unsigned int ip, short port){
@@ -308,25 +315,59 @@ void room_list(unsigned int ip, short port){
   }
 }
 
-void peer_list(unsigned int room){
+//when you need to handle a join reply, use the params join_ip and join_port
+//otherwise, join_ip=0 and join_port=-1
+void peer_list(unsigned int join_ip, short join_port, unsigned int room){
+  //create payload for join and update replies
   struct peer *s;
   int num_in_room = 0;
   for(s=peers; s != NULL; s=(peer *)s->hh.next){
     if(s->room==room){
       num_in_room = num_in_room+1;
-
     }
   }
-
-  char *list = (char *)malloc(num_in_room*20+1);
+  char *list = (char *)malloc(num_in_room * sizeof(struct sockaddr_in));
   char *list_i = list;
   for(s=peers; s != NULL; s=(peer *)s->hh.next){
     if(s->room==room){
-      strcpy(list_i, s->ip_and_port);
-      list_i += strlen(s->ip_and_port);
+      unsigned int peer_ip = get_ip(s->ip_and_port);
+      short peer_port = get_port(s->ip_and_port);
+      struct sockaddr_in peer_info = get_sockaddr_in(peer_ip, peer_port);
+      memcpy(list_i, (char*)&peer_info, sizeof(struct sockaddr_in));
+      list_i += sizeof(struct sockaddr_in);
     }
   }
-  fprintf(stderr, "peer list for room %d\n%s\n", room, list);
+
+  packet update_pkt;
+  update_pkt.header.type = 'u';
+  update_pkt.header.error = '\0';
+  update_pkt.header.payload_length = num_in_room * sizeof(struct sockaddr_in);
+  strcpy(update_pkt.payload, list);
+  for(s=peers; s != NULL; s=(peer *)s->hh.next){
+    if(s->room==room){
+      unsigned int peer_ip = get_ip(s->ip_and_port);
+      short peer_port = get_port(s->ip_and_port);
+      if(join_port!=-1 and join_ip!=0 and peer_ip == join_ip and peer_port==join_port){
+        //send join
+        packet join_pkt;
+        join_pkt.header.type = 'j';
+        join_pkt.header.error = '\0';
+        join_pkt.header.payload_length = num_in_room * sizeof(struct sockaddr_in);
+        strcpy(join_pkt.payload, list);
+        struct sockaddr_in peer_addr = get_sockaddr_in(peer_ip, peer_port);
+        int status = sendto(sock, &join_pkt, sizeof(join_pkt), 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
+        if (status == -1) {
+          fprintf(stderr, "%s\n", "error - error sending packet to peer");
+        }
+      }else{
+        struct sockaddr_in peer_addr = get_sockaddr_in(peer_ip, peer_port);
+        int status = sendto(sock, &update_pkt, sizeof(update_pkt), 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
+        if (status == -1) {
+          fprintf(stderr, "%s\n", "error - error sending packet to peer");
+        }
+      }
+    }
+  }
 }
 
 short parse_args(int argc, char **argv){
@@ -399,10 +440,46 @@ void send_error(unsigned int ip, short port, char type, char error){
     fprintf(stderr, "%s\n", "error - error sending packet to peer");
   }
 }
+
 sockaddr_in get_sockaddr_in(unsigned int ip, short port){
   struct sockaddr_in addr;
   addr.sin_family = AF_INET;
   addr.sin_addr.s_addr = ip;
   addr.sin_port = htons(port);
   return addr;
+}
+
+unsigned int get_ip(char* ip_port){
+  int i;
+  for(i=0; i<20; i++){
+    if(ip_port[i]==':'){
+      break;
+    }
+  }
+  char char_ip[i+1];
+  strncpy(char_ip, ip_port, i);
+  char_ip[i] = '\0';
+
+  return (unsigned int)strtoul(char_ip, NULL, 0);
+}
+
+short get_port(char* ip_port){
+  int i;
+  int start=-1;
+  int end=-1;
+  for(i=0; i<20; i++){
+    if(start==-1 && ip_port[i]==':'){
+      start=i+1;
+    }
+    if(ip_port[i]=='\0'){
+      end=i;
+      break;
+    }
+  }
+
+  char char_short[end-start+1];
+  strncpy(char_short, ip_port+start, end-start);
+  char_short[end-start] = '\0';
+  
+  return (short)atoi(char_short);
 }
