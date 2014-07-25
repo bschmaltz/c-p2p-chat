@@ -6,11 +6,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <limits.h>
-#include <errno.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <time.h>
 #include <pthread.h>
 #include <netdb.h>
 #include "message.h"
