@@ -201,7 +201,7 @@ void receive_packet() {
 void create_room_request() {
 	// format packet
 	packet pkt;
-	pkt.header.type = 'l';
+	pkt.header.type = 'c';
 	pkt.header.error = '\0';
 	pkt.header.payload_length = 0;
 
@@ -317,9 +317,13 @@ void create_room_reply(packet *pkt) {
 	peer_num = 1;
 	memcpy(peer_list, &self_addr, sizeof(struct sockaddr_in));
 	pthread_mutex_unlock(&peer_list_lock);
+<<<<<<< HEAD
 	pthread_mutex_lock(&stdout_lock);
 	printf("%s %d %s\n", "chatroom", room_num, "created.");
 	pthread_mutex_unlock(&stdout_lock);
+=======
+	fprintf(stderr, "You've created and joined room: %d!\n", room_num);
+>>>>>>> FETCH_HEAD
 }
 
 void join_room_reply(packet *pkt) {
@@ -382,9 +386,13 @@ void leave_room_reply(packet *pkt) {
 	room_num = 0;
 	peer_num = 0;
 	pthread_mutex_unlock(&peer_list_lock);
+<<<<<<< HEAD
 	pthread_mutex_lock(&stdout_lock);
 	printf("%s\n", "you have left the chatroom.");
 	pthread_mutex_unlock(&stdout_lock);
+=======
+	fprintf(stderr, "You've left your current chatroom.\n");
+>>>>>>> FETCH_HEAD
 }
 
 void user_connection_updates(packet *pkt) {
@@ -406,6 +414,7 @@ void user_connection_updates(packet *pkt) {
 
 void receive_available_rooms(packet *pkt) {
 
+	/*
 	unsigned int *room_info = (unsigned int *)(pkt->payload);
 	// check if length of payload is a power of 8 (2 unsigned int)
 	int num_of_rooms = pkt->header.payload_length / 8;
@@ -416,12 +425,16 @@ void receive_available_rooms(packet *pkt) {
 	}
 
 	int i;
+	*/
 	pthread_mutex_lock(&stdout_lock);
+	/*
 	printf("%s\n", "available room list: ");
 	printf("%s\n", "chatroom number | number of chatters");
 	for (i = 0; i < num_of_rooms; i++) {
 		printf("%d | %d\n", room_info[2 * i], room_info[2 * i + 1]);
 	}
+	*/
+	printf("Room List:\n%s\n", pkt->payload);
 	pthread_mutex_unlock(&stdout_lock);
 }
 
