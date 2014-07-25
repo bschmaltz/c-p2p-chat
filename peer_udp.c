@@ -269,7 +269,7 @@ void send_message(char *msg) {
 		status = sendto(sock, &pkt, sizeof(pkt.header) + pkt.header.payload_length, 0, (struct sockaddr *)&(peer_list[i]), sizeof(peer_list[i]));
 		if (status == -1) {
 			pthread_mutex_lock(&stdout_lock);
-			fprintf(stderr, "%s %d\n", "error - error sending packet to peer", i);
+			fprintf(stderr, "%s %d %d:%d\n", "error - error sending packet to peer", i, peer_list[i].sin_addr.s_addr, peer_list[i].sin_port);
 			pthread_mutex_unlock(&stdout_lock);
 		}
 	}

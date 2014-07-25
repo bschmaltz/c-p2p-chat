@@ -326,15 +326,16 @@ void peer_list(unsigned int join_ip, short join_port, unsigned int room){
       num_in_room = num_in_room+1;
     }
   }
-  char *list = (char *)malloc(num_in_room * sizeof(struct sockaddr_in));
-  char *list_i = list;
+  struct sockaddr_in list[num_in_room];
+  int a = 0;
   for(s=peers; s != NULL; s=(peer *)s->hh.next){
     if(s->room==room){
       unsigned int peer_ip = get_ip(s->ip_and_port);
       short peer_port = get_port(s->ip_and_port);
       struct sockaddr_in peer_info = get_sockaddr_in(peer_ip, peer_port);
-      memcpy(list_i, (char*)&peer_info, sizeof(struct sockaddr_in));
-      list_i += sizeof(struct sockaddr_in);
+      sockaddr_in* peer_info_ptr = &peer_info;
+      memcpy((sockaddr_in*)&list[a], peer_info_ptr, sizeof(peer_info));
+      a=a+1;
     }
   }
 
@@ -342,7 +343,7 @@ void peer_list(unsigned int join_ip, short join_port, unsigned int room){
   update_pkt.header.type = 'u';
   update_pkt.header.error = '\0';
   update_pkt.header.payload_length = num_in_room * sizeof(struct sockaddr_in);
-  strcpy(update_pkt.payload, list);
+  memcpy(update_pkt.payload, list, num_in_room * sizeof(struct sockaddr_in));
   for(s=peers; s != NULL; s=(peer *)s->hh.next){
     if(s->room==room){
       unsigned int peer_ip = get_ip(s->ip_and_port);
@@ -352,8 +353,9 @@ void peer_list(unsigned int join_ip, short join_port, unsigned int room){
         packet join_pkt;
         join_pkt.header.type = 'j';
         join_pkt.header.error = '\0';
+        join_pkt.header.room = room;
         join_pkt.header.payload_length = num_in_room * sizeof(struct sockaddr_in);
-        strcpy(join_pkt.payload, list);
+        memcpy(join_pkt.payload, list, num_in_room * sizeof(struct sockaddr_in));
         struct sockaddr_in peer_addr = get_sockaddr_in(peer_ip, peer_port);
         int status = sendto(sock, &join_pkt, sizeof(join_pkt), 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
         if (status == -1) {
@@ -476,10 +478,9 @@ short get_port(char* ip_port){
       break;
     }
   }
-
   char char_short[end-start+1];
   strncpy(char_short, ip_port+start, end-start);
   char_short[end-start] = '\0';
   
-  return (short)atoi(char_short);
+  return (short)strtoul(char_short, NULL, 0);
 }
