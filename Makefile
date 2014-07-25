@@ -1,4 +1,4 @@
-CC = gcc
+CC = g++
 DEBUG_FLAGS = -g -O0 -DDEBUG -pthread
 CFLAGS = $(DEBUG_FLAGS) -Wall
 RM = rm -f
