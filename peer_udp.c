@@ -99,7 +99,6 @@ void * read_input(void *ptr) {
 		memset(line, 0, sizeof(line));
 		p = fgets(line, sizeof(line), stdin);
 		// flush input stream to clear out long message
-		// while ((ch = getchar()) != '\n' && ch != EOF);
 		if (p == NULL) {
 			pthread_mutex_lock(&stdout_lock);
 			fprintf(stderr, "%s\n", "error - cannot read input");
@@ -317,13 +316,9 @@ void create_room_reply(packet *pkt) {
 	peer_num = 1;
 	memcpy(peer_list, &self_addr, sizeof(struct sockaddr_in));
 	pthread_mutex_unlock(&peer_list_lock);
-<<<<<<< HEAD
 	pthread_mutex_lock(&stdout_lock);
-	printf("%s %d %s\n", "chatroom", room_num, "created.");
+	printf("%s %d\n", "You've created and joined chatroom", room_num);
 	pthread_mutex_unlock(&stdout_lock);
-=======
-	fprintf(stderr, "You've created and joined room: %d!\n", room_num);
->>>>>>> FETCH_HEAD
 }
 
 void join_room_reply(packet *pkt) {
@@ -386,13 +381,9 @@ void leave_room_reply(packet *pkt) {
 	room_num = 0;
 	peer_num = 0;
 	pthread_mutex_unlock(&peer_list_lock);
-<<<<<<< HEAD
 	pthread_mutex_lock(&stdout_lock);
 	printf("%s\n", "you have left the chatroom.");
 	pthread_mutex_unlock(&stdout_lock);
-=======
-	fprintf(stderr, "You've left your current chatroom.\n");
->>>>>>> FETCH_HEAD
 }
 
 void user_connection_updates(packet *pkt) {
