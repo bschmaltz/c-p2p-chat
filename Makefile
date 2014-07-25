@@ -3,9 +3,12 @@ DEBUG_FLAGS = -g -O0 -DDEBUG -pthread
 CFLAGS = $(DEBUG_FLAGS) -Wall
 RM = rm -f
 
-all: tracker
+all: tracker peer
 
 tracker: tracker.o
+	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@
+
+peer: peer.o
 	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@
 	
 clean:
