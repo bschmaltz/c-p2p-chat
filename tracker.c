@@ -1,5 +1,6 @@
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -23,13 +24,12 @@ struct peer {
 };
 
 // Globals
-unsigned short g_usPort;
-struct sockaddr_in svr_addr;
-int svr_socket;
 struct peer *peers;
+char input_buffer[65535];
 
 // Function Prototypes
-void parse_args(int argc, char **argv);
+char* parse_args(int argc, char **argv);
+char* handle_request();
 void peer_create_room(unsigned int ip, short peer, unsigned int room);
 void peer_join(unsigned int ip, short port, unsigned int room);
 void peer_leave(unsigned int ip, short peer);
@@ -42,41 +42,72 @@ int main(int argc, char **argv){
   //setup hashtable
   peers = NULL;
   fprintf(stderr, "Hashtable created\n");
+  //read input
+  char* port = parse_args(argc, argv);
+  fprintf(stderr, "Starting server on port: %s\n", port);
 
-  parse_args(argc, argv);
-  fprintf(stderr, "Starting server on port: %hu\n", g_usPort);
-  //setup tracker accept port
-  svr_socket = socket(AF_INET, SOCK_STREAM, 0);
-  if(svr_socket < 0)
-  {
-    fprintf(stderr, "Server socket failed to open\n");
+  //setup server UDP socket
+  // Construct the server address structure
+  struct addrinfo addr_criteria;
+  memset(&addr_criteria, 0, sizeof(addr_criteria));
+  addr_criteria.ai_family = AF_UNSPEC;    //Any address family
+  addr_criteria.ai_flags = AI_PASSIVE;    //Accept on any address/port
+  addr_criteria.ai_socktype = SOCK_DGRAM; //Only datagram socket
+  addr_criteria.ai_protocol = IPPROTO_UDP;//Only UDP socket
+  struct addrinfo *srv_addr; // List of server addresses
+  int rtnVal = getaddrinfo(NULL, port, &addr_criteria, &srv_addr);
+  if (rtnVal != 0){
+    fprintf(stderr, "getaddrinfo failed\n");
     exit(1);
   }
-  //set server socket address
-  memset(&svr_addr, 0, sizeof(svr_addr));
-  svr_addr.sin_family = AF_INET;
-  svr_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-  svr_addr.sin_port = htons(g_usPort);
-  //bind address to socket
-  if(bind(svr_socket, (struct sockaddr *)&svr_addr, sizeof(svr_addr)) < 0)
-  {
-    fprintf(stderr, "Server bind failed\n");
+  // Create socket for incoming connections
+  int sock = socket(srv_addr->ai_family, srv_addr->ai_socktype, srv_addr->ai_protocol);
+  if (sock < 0){
+    fprintf(stderr, "socket failed to create\n");
     exit(1);
   }
-  //turn socket listening on
-  if(listen(svr_socket, 10) < 0)
-  {
-    perror("Server listen failed\n");
+  // Bind to the local address
+  if (bind(sock, srv_addr->ai_addr, srv_addr->ai_addrlen) < 0){
+    fprintf(stderr, "socket failed to bind\n");
     exit(1);
   }
-  fprintf(stderr, "Server listening...\n");
+  freeaddrinfo(srv_addr);
 
-  //wait to accept connections from peers
+
+  fprintf(stderr, "Server running...\n");
+  while(1) {
+    struct sockaddr_storage cli_addr;
+    socklen_t cli_addr_len = sizeof(cli_addr);
+    // Block until receive message from a client
+    ssize_t num_bytes_recv = recvfrom(sock, input_buffer, 65535, 0, (struct sockaddr *) &cli_addr, &cli_addr_len);
+    if (num_bytes_recv < 0){
+      fprintf(stderr, "recv from failed\n");
+      exit(1);
+    }
+    fprintf(stderr, "Handling client...");
+
+
+    // Send received datagram back to the client
+    char* response = handle_request();
+    ssize_t num_bytes_sent = sendto(sock, response, strlen(response), 0,(struct sockaddr *) &cli_addr, sizeof(cli_addr));
+
+    if (num_bytes_sent < 0){
+      fprintf(stderr, "sendto() failed\n");
+      exit(1);
+    }else if (num_bytes_sent != num_bytes_recv){
+      fprintf(stderr, "sendto() sent an unexpected number of bytes\n");
+      exit(1);
+    }
+  }
 
 
   test_hash_table();
 
   return 0;
+}
+
+char* handle_request(){
+  return (char*)"test response";
 }
 
 void peer_create_room(unsigned int ip, short peer, unsigned int room){
@@ -258,10 +289,10 @@ char* peer_list(unsigned int room){
   return list;
 }
 
-void parse_args(int argc, char **argv){
+char* parse_args(int argc, char **argv){
   if (argc < 2)
   {
-    g_usPort = 8080;
+    return (char *)"8080";
   }
   else
   {
@@ -284,7 +315,7 @@ void parse_args(int argc, char **argv){
               argv[1], strerror(errno));
       abort();
     }
-    g_usPort = ulPort;
+    return argv[1];
   }
 }
 
