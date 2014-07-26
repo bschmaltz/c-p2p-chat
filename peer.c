@@ -362,7 +362,7 @@ void join_room_reply(packet *pkt) {
 			fprintf(stderr, "%s\n", "error - the chatroom does not exist!");
 		}
 		else if (error == 'a') {
-			fprintf(stderr, "%s\n", "error - you are already in a chatroom!");
+			fprintf(stderr, "%s\n", "error - you are already in that chatroom!");
 		}
 		else {
 			fprintf(stderr, "%s\n", "error - unspecified error.");
