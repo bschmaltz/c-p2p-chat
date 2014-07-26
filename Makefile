@@ -10,9 +10,6 @@ tracker: tracker.o
 
 peer: peer.o
 	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@
-
-# peer_tcp: peer_udp.o
-# 	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@
 	
 clean:
 	$(RM) *.o tracker peer
