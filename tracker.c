@@ -13,6 +13,7 @@
 #include <time.h>
 #include <locale.h>
 #include <math.h>
+#include <pthread.h>
 #include "uthash.h"
 #include "message.h"
 #define MAX_NUM_ROOMS 5
@@ -21,15 +22,24 @@
 struct peer {
   char ip_and_port[20];
   unsigned int room;
+  short alive;
   UT_hash_handle hh;
 };
 
 // Globals
 struct peer *peers;
 int sock;
+int ping_sock;
+pthread_mutex_t stdout_lock;
+pthread_mutex_t peers_lock;
 
 // Function Prototypes
 short parse_args(int argc, char **argv);
+void * ping_output(void *ptr);
+void * ping_input(void *ptr);
+void mark_peer_alive(unsigned int ip, short port);
+void send_pings();
+void delete_dead_peers();
 void peer_create_room(unsigned int ip, short port);
 void peer_join(unsigned int ip, short port, unsigned int room);
 void peer_leave(unsigned int ip, short port);
@@ -48,36 +58,59 @@ int main(int argc, char **argv){
   fprintf(stderr, "Hashtable created\n");
   //read input
   short port = parse_args(argc, argv);
-  fprintf(stderr, "Starting server on port: %d\n", port);
+  fprintf(stderr, "Starting server on ports: %d, %d\n", port, port+1);
 
-  //setup UDP socket
+  //setup UDP sockets
   sock = socket(AF_INET, SOCK_DGRAM, 0);
+  ping_sock = socket(AF_INET, SOCK_DGRAM, 0);
   if (sock < 0) {
-    fprintf(stderr, "%s\n", "error - error creating socket.");
+    fprintf(stderr, "%s\n", "error - error creating sock.");
+    abort();
+  }
+  if (ping_sock < 0) {
+    fprintf(stderr, "%s\n", "error - error creating ping_sock.");
     abort();
   }
   struct sockaddr_in self_addr;
   self_addr.sin_family = AF_INET; 
   self_addr.sin_addr.s_addr = htonl(INADDR_ANY);
   self_addr.sin_port = htons(port);
+  struct sockaddr_in ping_addr;
+  ping_addr.sin_family = AF_INET; 
+  ping_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+  ping_addr.sin_port = htons(port+1);
   if (bind(sock, (struct sockaddr *)&self_addr, sizeof(self_addr))) {
-    fprintf(stderr, "%s\n", "error - error binding.");
+    fprintf(stderr, "%s\n", "error - error binding sock.");
     abort();
   }
+  if (bind(ping_sock, (struct sockaddr *)&ping_addr, sizeof(ping_addr))) {
+    fprintf(stderr, "%s\n", "error - error binding ping_sock.");
+    abort();
+  }
+
+  //create a thread to handle ping responses
+  pthread_t ping_input_thread;
+  pthread_create(&ping_input_thread, NULL, ping_input, NULL);
+  pthread_detach(ping_input_thread);
+
+  //create thread to send pings and delete dead users
+  pthread_t ping_output_thread;
+  pthread_create(&ping_output_thread, NULL, ping_output, NULL);
+  pthread_detach(ping_output_thread);
+
   socklen_t addrlen = 10;
   struct sockaddr_in sender_addr;
   packet recv_pkt;
   int recv_status;
-
   while(1){
     recv_status = recvfrom(sock, &recv_pkt, sizeof(recv_pkt), 0, (struct sockaddr *)&sender_addr, &addrlen);
     if (recv_status == -1) {
+      pthread_mutex_lock(&stdout_lock);
       fprintf(stderr, "%s\n", "error - error receiving a packet, ignoring.");
+      pthread_mutex_unlock(&stdout_lock);
     }else{
-      fprintf(stderr, "%s\n", "handle request...");
       unsigned int ip = sender_addr.sin_addr.s_addr;
       short port = htons(sender_addr.sin_port);
-      fprintf(stderr, "%c\n", recv_pkt.header.type);
       switch (recv_pkt.header.type) {
         case 'c': 
           peer_create_room(ip, port);
@@ -92,7 +125,9 @@ int main(int argc, char **argv){
           room_list(ip, port);
           break;
         default:
+          pthread_mutex_lock(&stdout_lock);
           fprintf(stderr, "%s\n", "error - received packet type unknown.");
+          pthread_mutex_unlock(&stdout_lock);
           break;
       }
     }
@@ -100,12 +135,116 @@ int main(int argc, char **argv){
   return 0;
 }
 
+void * ping_input(void *ptr){
+  socklen_t addrlen = 10;
+  struct sockaddr_in sender_addr;
+  packet recv_pkt;
+  int recv_status;
+
+  while(1){
+    //check ping socket - mark sender alive
+    recv_status = recvfrom(ping_sock, &recv_pkt, sizeof(recv_pkt), 0, (struct sockaddr *)&sender_addr, &addrlen);
+    if (recv_status == -1) {
+      pthread_mutex_lock(&stdout_lock);
+      fprintf(stderr, "%s\n", "error - error receiving a packet, ignoring.");
+      pthread_mutex_unlock(&stdout_lock);
+    }else{
+      unsigned int ip = sender_addr.sin_addr.s_addr;
+      short port = htons(sender_addr.sin_port);
+      switch (recv_pkt.header.type) {
+        case 'p': 
+          mark_peer_alive(ip, port);
+          break;
+        default:
+          pthread_mutex_lock(&stdout_lock);
+          fprintf(stderr, "%s\n", "error - received packet type unknown.");
+          pthread_mutex_unlock(&stdout_lock);
+          break;
+      }
+    }
+  }
+  return NULL;
+}
+
+void * ping_output(void *ptr){
+  clock_t t;
+  send_pings();
+  t = clock();
+  while(1){
+    if((float)(clock()-t)/CLOCKS_PER_SEC >= 5){ //ping time interval over
+      pthread_mutex_lock(&stdout_lock);
+      fprintf(stderr, "%s\n", "Checking ping responses");
+      pthread_mutex_unlock(&stdout_lock);
+      delete_dead_peers();
+      send_pings();
+      t=clock();
+    }
+  }
+  return NULL;
+}
+
+void mark_peer_alive(unsigned int ip, short port){
+  char ip_port[20];
+  memset(ip_port, 0, sizeof(ip_port));
+  char* ip_and_port_format = (char *)"%d:%d";
+  sprintf(ip_port, ip_and_port_format, ip, port);
+  struct peer *s;
+  HASH_FIND_STR(peers, ip_port, s);
+  if(s!=NULL){
+    pthread_mutex_lock(&peers_lock);
+    s->alive = 1;
+    pthread_mutex_unlock(&peers_lock);
+  }else{
+    pthread_mutex_lock(&stdout_lock);
+    fprintf(stderr, "%s\n", "peer not found for ping response");
+    pthread_mutex_unlock(&stdout_lock);
+  }
+}
+
+//mark all peers "dead" and send pings
+void send_pings(){
+  struct peer *s;
+  for(s=peers; s != NULL; s=(struct peer *)s->hh.next){
+    //mark dead
+    pthread_mutex_lock(&peers_lock);
+    s->alive = 0;
+    pthread_mutex_unlock(&peers_lock);
+    //send ping
+    unsigned int peer_ip = get_ip(s->ip_and_port);
+    short peer_port = get_port(s->ip_and_port);
+    packet pkt;
+    pkt.header.type = 'p';
+    pkt.header.error = '\0';
+    pkt.header.payload_length = 0;
+    struct sockaddr_in peer_addr = get_sockaddr_in(peer_ip, peer_port);
+    int status = sendto(ping_sock, &pkt, sizeof(pkt.header), 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
+    if (status == -1) {
+      pthread_mutex_lock(&stdout_lock);
+      fprintf(stderr, "%s\n", "error - error sending packet to peer");
+      pthread_mutex_unlock(&stdout_lock);
+    }
+  }
+}
+
+void delete_dead_peers(){
+  struct peer *s;
+  for(s=peers; s != NULL; s=(struct peer *)s->hh.next){
+    if(s->alive==0){
+      unsigned int peer_ip = get_ip(s->ip_and_port);
+      short peer_port = get_port(s->ip_and_port);
+      peer_leave(peer_ip, peer_port);
+    }
+  }
+}
+
 void peer_create_room(unsigned int ip, short port){
   //check if room limit reached
   int number_of_rooms = get_total_num_rooms();
   if(number_of_rooms>=MAX_NUM_ROOMS){
     send_error(ip, port, 'c', 'o');
-    perror("Peer create room failed - max number of rooms reached.\n");
+    pthread_mutex_lock(&stdout_lock);
+    fprintf(stderr, "Peer create room failed - max number of rooms reached.\n");
+    pthread_mutex_unlock(&stdout_lock);
     return;
   }
 
@@ -133,15 +272,22 @@ void peer_create_room(unsigned int ip, short port){
   char* ip_and_port_format = (char *)"%d:%d";
   sprintf(new_peer->ip_and_port, ip_and_port_format, ip, port);
   new_peer->room = room;
+  new_peer->alive = 1;
 
   //check if peer in a room
   HASH_FIND_STR(peers, (new_peer->ip_and_port), s);
   if(s!=NULL){
-    perror("Peer create room failed - already in a room.\n");
+    pthread_mutex_lock(&stdout_lock);
+    fprintf(stderr, "Peer create room failed - already in a room.\n");
+    pthread_mutex_unlock(&stdout_lock);
     send_error(ip, port, 'c', 'e');
   }else{
+    pthread_mutex_lock(&peers_lock);
     HASH_ADD_STR( peers, ip_and_port, new_peer );  //create room - add peer
+    pthread_mutex_unlock(&peers_lock);
+    pthread_mutex_lock(&stdout_lock);
     fprintf(stderr, "%s created %d\n", new_peer->ip_and_port, room);
+    pthread_mutex_unlock(&stdout_lock);
 
     packet pkt;
     pkt.header.type = 'c';
@@ -151,7 +297,9 @@ void peer_create_room(unsigned int ip, short port){
     struct sockaddr_in peer_addr = get_sockaddr_in(ip, port);
     int status = sendto(sock, &pkt, sizeof(pkt.header), 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
     if (status == -1) {
+      pthread_mutex_lock(&stdout_lock);
       fprintf(stderr, "%s\n", "error - error sending packet to peer");
+      pthread_mutex_unlock(&stdout_lock);
     }
   }
 }
@@ -164,7 +312,9 @@ void peer_join(unsigned int ip, short port, unsigned int room){
     if(s->room == room){
       r = r+1;
       if(r>=MAX_ROOM_SIZE){
-        perror("Peer join failed - room full.\n");
+        pthread_mutex_lock(&stdout_lock);
+        fprintf(stderr, "Peer join failed - room full.\n");
+        pthread_mutex_unlock(&stdout_lock);
         send_error(ip, port, 'j', 'f');
         return;
       }
@@ -172,7 +322,9 @@ void peer_join(unsigned int ip, short port, unsigned int room){
     }
   }
   if (room_exists==0){
-    perror("Peer join failed - room does not exist.\n");
+    pthread_mutex_lock(&stdout_lock);
+    fprintf(stderr, "Peer join failed - room does not exist.\n");
+    pthread_mutex_unlock(&stdout_lock);
     send_error(ip, port, 'j', 'e');
     return;
   }
@@ -183,30 +335,40 @@ void peer_join(unsigned int ip, short port, unsigned int room){
   char* ip_and_port_format = (char *)"%d:%d";
   sprintf(new_peer->ip_and_port, ip_and_port_format, ip, port);
   new_peer->room = room;
+  new_peer->alive = 1;
   
 
   HASH_FIND_STR(peers, (new_peer->ip_and_port), s);
   if(s!=NULL && s->room==room){
-    perror("Peer join failed - already in room.\n");
+    pthread_mutex_lock(&stdout_lock);
+    fprintf(stderr, "Peer join failed - already in room.\n");
+    pthread_mutex_unlock(&stdout_lock);
     send_error(ip, port, 'j', 'a');
     return;
   }
   int old_room_update = -1;
   if(s==NULL){ 
     //peer not found - join
-
+    pthread_mutex_lock(&peers_lock);
     HASH_ADD_STR( peers, ip_and_port, new_peer );
+    pthread_mutex_unlock(&peers_lock);
   }else{
     //peer found - switch
     old_room_update = s->room;
+    pthread_mutex_lock(&peers_lock);
     HASH_REPLACE_STR( peers, ip_and_port, new_peer, s );
+    pthread_mutex_unlock(&peers_lock);
   }
   if(old_room_update!=-1){
+    pthread_mutex_lock(&stdout_lock);
     fprintf(stderr, "%s peer switched from %d to %d.\n", new_peer->ip_and_port, old_room_update, room);
+    pthread_mutex_unlock(&stdout_lock);
     peer_list(ip, port, room);
     peer_list(0, -1, old_room_update);
   }else{
+    pthread_mutex_lock(&stdout_lock);
     fprintf(stderr, "%s joined %d\n", new_peer->ip_and_port, room);
+    pthread_mutex_unlock(&stdout_lock);
     peer_list(ip, port, room);
   }
 }
@@ -220,10 +382,13 @@ void peer_leave(unsigned int ip, short port){
   HASH_FIND_STR(peers, ip_port, s);
   if(s!=NULL){
     unsigned int left_room = s->room;
+    pthread_mutex_lock(&peers_lock);
     HASH_DEL( peers, s);
     free(s);
+    pthread_mutex_unlock(&peers_lock);
+    pthread_mutex_lock(&stdout_lock);
     fprintf(stderr, "%s left %d\n", ip_port, left_room);
-
+    pthread_mutex_unlock(&stdout_lock);
     packet pkt;
     pkt.header.type = 'l';
     pkt.header.error = '\0';
@@ -231,7 +396,9 @@ void peer_leave(unsigned int ip, short port){
     struct sockaddr_in peer_addr = get_sockaddr_in(ip, port);
     int status = sendto(sock, &pkt, sizeof(pkt.header), 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
     if (status == -1) {
+      pthread_mutex_lock(&stdout_lock);
       fprintf(stderr, "%s\n", "error - error sending packet to peer");
+      pthread_mutex_unlock(&stdout_lock);
     }
     peer_list(0, -1, left_room);
   }else{
@@ -300,7 +467,9 @@ void room_list(unsigned int ip, short port){
   if(number_of_rooms==0){
     list=(char*)"There are no chatrooms\n";
   }
+  pthread_mutex_lock(&stdout_lock);
   fprintf(stderr, "room list\n%s\n", list);
+  pthread_mutex_unlock(&stdout_lock);
 
   packet pkt;
   pkt.header.type = 'r';
@@ -310,7 +479,9 @@ void room_list(unsigned int ip, short port){
   struct sockaddr_in peer_addr = get_sockaddr_in(ip, port);
   int status = sendto(sock, &pkt, sizeof(pkt), 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
   if (status == -1) {
+    pthread_mutex_lock(&stdout_lock);
     fprintf(stderr, "%s\n", "error - error sending packet to peer");
+    pthread_mutex_unlock(&stdout_lock);
   }
 }
 
@@ -358,13 +529,17 @@ void peer_list(unsigned int join_ip, short join_port, unsigned int room){
         struct sockaddr_in peer_addr = get_sockaddr_in(peer_ip, peer_port);
         int status = sendto(sock, &join_pkt, sizeof(join_pkt), 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
         if (status == -1) {
+          pthread_mutex_lock(&stdout_lock);
           fprintf(stderr, "%s\n", "error - error sending packet to peer");
+          pthread_mutex_unlock(&stdout_lock);
         }
       }else{
         struct sockaddr_in peer_addr = get_sockaddr_in(peer_ip, peer_port);
         int status = sendto(sock, &update_pkt, sizeof(update_pkt), 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
         if (status == -1) {
+          pthread_mutex_lock(&stdout_lock);
           fprintf(stderr, "%s\n", "error - error sending packet to peer");
+          pthread_mutex_unlock(&stdout_lock);
         }
       }
     }
@@ -438,7 +613,9 @@ void send_error(unsigned int ip, short port, char type, char error){
 
   int status = sendto(sock, &pkt, sizeof(pkt.header), 0, (struct sockaddr *)&peer_addr, sizeof(peer_addr));
   if (status == -1) {
+    pthread_mutex_lock(&stdout_lock);
     fprintf(stderr, "%s\n", "error - error sending packet to peer");
+    pthread_mutex_unlock(&stdout_lock);
   }
 }
 
