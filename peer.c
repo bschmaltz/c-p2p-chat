@@ -175,9 +175,6 @@ void receive_packet() {
 			continue;
 		}
 
-		pthread_mutex_lock(&stdout_lock);
-		fprintf(stderr, "%s %d:%d\n", "message from - ", sender_addr.sin_addr.s_addr, sender_addr.sin_port);
-		pthread_mutex_unlock(&stdout_lock);
 		switch (pkt.header.type) {
 			case 'c': 
 				create_room_reply(&pkt);
@@ -483,12 +480,9 @@ void reply_to_ping(struct sockaddr_in *sender_addr) {
 	pkt.header.type = 'p';
 	pkt.header.error = '\0';
 	pkt.header.payload_length = 0;
-	pthread_mutex_lock(&stdout_lock);
-	fprintf(stderr, "%s %d:%d\n", "reply to ping at - ", sender_addr->sin_addr.s_addr, sender_addr->sin_port);
-	pthread_mutex_unlock(&stdout_lock);
 
 	// send ping reply
-	int status = sendto(sock, &pkt, sizeof(pkt.header), 0, (struct sockaddr *)&sender_addr, sizeof(struct sockaddr_in));
+	int status = sendto(sock, &pkt, sizeof(pkt.header), 0, (struct sockaddr *)sender_addr, sizeof(struct sockaddr_in));
 	if (status == -1) {
 		pthread_mutex_lock(&stdout_lock);
 		fprintf(stderr, "%s\n", "error - error replying to ping message, possibility of being opt-out.");
