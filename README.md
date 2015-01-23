@@ -1,8 +1,4 @@
-c-p2p-chat
-==========
-
-Peer to peer chat application written in C for CS 3251
-
+README
 Group: Robin Egg Blue Team
 Members: Charles (Ben) Schmaltz, Alexander Leavitt, Yiqi Chen
 
